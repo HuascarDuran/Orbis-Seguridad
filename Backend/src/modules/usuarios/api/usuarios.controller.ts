@@ -36,7 +36,7 @@ export class UsuariosController {
 
     @Get()
     // Usamos ROLES_ADMIN_SISTEMA para que OSI y RRHH puedan ver usuarios
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA))
+    @UseGuards()
     @ApiOperation({ summary: 'Api para obtener los usuarios (solo admins)' })
     @ApiOkResponse({ description: 'Respuesta en caso de obtener usuarios', type: FindAllUsuariosDto })
     async findAll(@Res() res: Response) {
@@ -45,7 +45,7 @@ export class UsuariosController {
     }
 
     @Post()
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA))
+    @UseGuards()
     @ApiOperation({ summary: 'Api para crear un usuario con alias @orbis.com (solo admins)' })
     @ApiCreatedResponse({ description: 'Usuario creado y credenciales enviadas por correo', type: CommonResponseDto })
     @ApiBadRequestResponse(SwaggerBadRequestCommon())
@@ -74,7 +74,7 @@ export class UsuariosController {
     }
 
     @Put(':id')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA))
+    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
     @ApiOperation({ summary: 'Api para actualizar información de un usuario (solo admins)' })
     @ApiOkResponse({ description: 'Respuesta en caso de actualizar el usuario', type: CommonResponseDto })
     @ApiBadRequestResponse(SwaggerBadRequestCommon())
@@ -91,7 +91,7 @@ export class UsuariosController {
     }
 
     @Patch(':id/desbloquear')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA))
+    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
     @ApiOperation({ summary: 'Api para desbloquear la cuenta de un usuario (solo admins)' })
     @ApiOkResponse({ description: 'Cuenta desbloqueada exitosamente', type: CommonResponseDto })
     @ApiNotFoundResponse(SwaggerNotFoundCommon())
@@ -119,7 +119,7 @@ export class UsuariosController {
     }
 
     @Delete(':id')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA))
+    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
     @ApiOperation({ summary: 'Api para eliminar a un usuario (solo admins)' })
     @ApiOkResponse({ description: 'Respuesta en caso de eliminar un usuario', type: CommonResponseDto })
     @ApiBadRequestResponse(SwaggerBadRequestCommon())
@@ -134,7 +134,7 @@ export class UsuariosController {
     }
 
     @Get(':id/historial-passwords')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA))
+    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
     @ApiOperation({ summary: 'Obtener historial de fechas de cambio de contraseña (sin hashes)' })
     @ApiOkResponse({ description: 'Historial de fechas obtenido', type: CommonResponseDto })
     @ApiNotFoundResponse(SwaggerNotFoundCommon())

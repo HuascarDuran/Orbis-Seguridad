@@ -38,7 +38,8 @@ import { EmailModule } from './shared/services/email/email.module';
 import { AppController } from './app.controller';
 import { DatamartModule } from './modules/datamart/datamart.module';
 import { CommonModule } from './common/common.module';
-
+import { LogsModule } from './modules/logs/logs.module';
+import { RiesgosModule } from './modules/riesgos/riesgos.module';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -77,7 +78,9 @@ import { CommonModule } from './common/common.module';
 		FormularioModule,
 		DashboardModule,
 		SolicitudesTemporalesModule,
-		DatamartModule
+		DatamartModule,
+		LogsModule,
+    	RiesgosModule
 	],
 	providers: [
 		AppTask

@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Param, Post, Res } from '@nestjs/common';
+import { Body, Controller, Post, Get, Param, Res, Req, UseGuards } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { RegisterDto } from '../dto/register.dto';
-import { Response } from 'express';
 import { LoginDto } from '../dto/login.dto';
 import { CreatedRes, OkRes } from 'src/common/utils';
 import { ApiBadRequestResponse, ApiConflictResponse, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiUnauthorizedResponse } from '@nestjs/swagger';
@@ -47,8 +47,8 @@ export class AuthController {
 		type: CommonResponseDto
 	})
 	@ApiBadRequestResponse(SwaggerBadRequestCommon())
-	async login(@Body() data: LoginDto, @Res() res: Response) {
-		const response = await this.authService.login(data);
+	async login(@Body() data: LoginDto, @Res() res: Response, @Req() req: Request) {
+		const response = await this.authService.login(data, req.ip ?? '127.0.0.1');
 		return OkRes(res, response);
 	}
 
@@ -57,8 +57,8 @@ export class AuthController {
 	@Post('/forgot-password')
 	@ApiOperation({ summary: 'Solicitar restablecimiento de contraseña por correo' })
 	@ApiOkResponse({ description: 'Correo enviado si la cuenta existe', type: CommonResponseDto })
-	async forgotPassword(@Body() dto: ForgotPasswordDto, @Res() res: Response) {
-		await this.authService.solicitarResetPassword(dto.correo);
+	async forgotPassword(@Body() dto: ForgotPasswordDto, @Res() res: Response, @Req() req: Request) {
+		await this.authService.solicitarResetPassword(dto.correo, req.ip ?? '127.0.0.1');
 		return OkRes(res, {
 			message: 'Si existe una cuenta con ese correo, recibirás un enlace para restablecer tu contraseña.'
 		});
@@ -76,8 +76,8 @@ export class AuthController {
 	@ApiOperation({ summary: 'Confirmar el restablecimiento de contraseña con token' })
 	@ApiOkResponse({ description: 'Contraseña actualizada exitosamente', type: CommonResponseDto })
 	@ApiBadRequestResponse(SwaggerBadRequestCommon())
-	async resetPassword(@Body() dto: ResetPasswordDto, @Res() res: Response) {
-		await this.authService.confirmarResetPassword(dto.token, dto.passwordNuevo);
+	async resetPassword(@Body() dto: ResetPasswordDto, @Res() res: Response, @Req() req: Request) {
+		await this.authService.confirmarResetPassword(dto.token, dto.passwordNuevo, req.ip ?? '127.0.0.1');
 		return OkRes(res, { message: 'Contraseña restablecida exitosamente.' });
 	}
 }

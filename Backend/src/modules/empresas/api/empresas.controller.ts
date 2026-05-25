@@ -123,7 +123,7 @@ export class EmpresasController {
     // =========================================================
 
     @Put('private/:idEmpresa')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_EMPRESAS))
+    @UseGuards(AuthRolesGuard(ROLES_ADMIN_EMPRESAS as unknown as number[]))
     @ApiOperation({
         summary: 'Api para actualizar/editar los datos de una empresa',
     })
@@ -139,7 +139,7 @@ export class EmpresasController {
     }
 
     @Delete(':idEmpresa')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_EMPRESAS))
+    @UseGuards(AuthRolesGuard(ROLES_ADMIN_EMPRESAS as unknown as number[]))
     @ApiOperation({
         summary: 'Api para eliminar o dar de baja una empresa',
     })
