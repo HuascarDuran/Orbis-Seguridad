@@ -18,12 +18,19 @@ const decodeJwt = (token) => {
   }
 };
 
-export const login = async ({ usuario, contrasenia }) => {
+// CORREGIDO: Recibe captchaToken como segundo parámetro desde inicioSesion.js
+export const login = async ({ usuario, contrasenia }, captchaToken) => {
   if (!usuario || !contrasenia) {
     throw new Error('Usuario y contraseña son requeridos');
   }
 
-  const response = await API.post('/api/auth/login', { usuario, contrasenia });
+  // Si existe el token de captcha, lo inyectamos en los headers de la instancia API
+  const config = captchaToken 
+    ? { headers: { 'x-captcha-token': captchaToken } } 
+    : {};
+
+  // Pasamos config como tercer parámetro al método POST
+  const response = await API.post('/api/auth/login', { usuario, contrasenia }, config);
   const data = response.data ?? response;
 
   const accessToken = data.access_token;

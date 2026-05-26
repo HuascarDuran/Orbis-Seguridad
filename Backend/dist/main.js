@@ -107,6 +107,8 @@ const datamart_module_1 = __webpack_require__(/*! ./modules/datamart/datamart.mo
 const common_module_1 = __webpack_require__(/*! ./common/common.module */ "./src/common/common.module.ts");
 const logs_module_1 = __webpack_require__(/*! ./modules/logs/logs.module */ "./src/modules/logs/logs.module.ts");
 const riesgos_module_1 = __webpack_require__(/*! ./modules/riesgos/riesgos.module */ "./src/modules/riesgos/riesgos.module.ts");
+const throttler_1 = __webpack_require__(/*! @nestjs/throttler */ "@nestjs/throttler");
+const core_1 = __webpack_require__(/*! @nestjs/core */ "@nestjs/core");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -151,10 +153,21 @@ exports.AppModule = AppModule = __decorate([
             solicitudes_temporales_module_1.SolicitudesTemporalesModule,
             datamart_module_1.DatamartModule,
             logs_module_1.LogsModule,
-            riesgos_module_1.RiesgosModule
+            riesgos_module_1.RiesgosModule,
+            throttler_1.ThrottlerModule.forRoot([
+                {
+                    name: 'short',
+                    ttl: 60000,
+                    limit: 50,
+                },
+            ]),
         ],
         providers: [
-            app_task_1.AppTask
+            app_task_1.AppTask,
+            {
+                provide: core_1.APP_GUARD,
+                useClass: throttler_1.ThrottlerGuard,
+            },
         ],
         controllers: [app_controller_1.AppController]
     })
@@ -196,6 +209,8 @@ const common_response_dto_1 = __webpack_require__(/*! src/shared/dto/common-resp
 const login_response_dto_1 = __webpack_require__(/*! ../dto/login-response.dto */ "./src/app/services/auth/dto/login-response.dto.ts");
 const swagger_response_utils_1 = __webpack_require__(/*! src/common/utils/swagger/swagger-response.utils */ "./src/common/utils/swagger/swagger-response.utils.ts");
 const reset_password_dto_1 = __webpack_require__(/*! ../dto/reset-password.dto */ "./src/app/services/auth/dto/reset-password.dto.ts");
+const captcha_guard_1 = __webpack_require__(/*! ../guards/captcha.guard */ "./src/app/services/auth/guards/captcha.guard.ts");
+const throttler_1 = __webpack_require__(/*! @nestjs/throttler */ "@nestjs/throttler");
 let AuthController = class AuthController {
     authService;
     constructor(authService) {
@@ -248,6 +263,8 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "register", null);
 __decorate([
+    (0, common_1.UseGuards)(captcha_guard_1.CaptchaGuard),
+    (0, throttler_1.Throttle)({ short: { limit: 5, ttl: 60000 } }),
     (0, common_1.Post)('/login'),
     (0, swagger_1.ApiOperation)({
         summary: 'Api iniciar sesion en el sistema'
@@ -637,7 +654,7 @@ const AuthRolesGuard = (roles) => {
             const { user } = context.switchToHttp().getRequest();
             if (!roles || roles.length === 0)
                 return true;
-            const isAllowed = roles.includes(Number(user.rol));
+            const isAllowed = roles.includes(Number(user.idRol || user.rol));
             if (!isAllowed) {
                 throw new common_1.ForbiddenException({
                     message: 'No tiene permiso para realizar esta acción'
@@ -653,6 +670,132 @@ const AuthRolesGuard = (roles) => {
     return (0, common_1.mixin)(MixinAuthRolesGuard);
 };
 exports.AuthRolesGuard = AuthRolesGuard;
+
+
+/***/ }),
+
+/***/ "./src/app/services/auth/guards/captcha.guard.ts":
+/*!*******************************************************!*\
+  !*** ./src/app/services/auth/guards/captcha.guard.ts ***!
+  \*******************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var CaptchaGuard_1;
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CaptchaGuard = void 0;
+const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const config_1 = __webpack_require__(/*! @nestjs/config */ "@nestjs/config");
+const https = __webpack_require__(/*! node:https */ "node:https");
+const querystring = __webpack_require__(/*! node:querystring */ "node:querystring");
+let CaptchaGuard = CaptchaGuard_1 = class CaptchaGuard {
+    configService;
+    logger = new common_1.Logger(CaptchaGuard_1.name);
+    RECAPTCHA_HOST = 'www.google.com';
+    RECAPTCHA_PATH = '/recaptcha/api/siteverify';
+    MIN_SCORE = 0.5;
+    constructor(configService) {
+        this.configService = configService;
+    }
+    async canActivate(context) {
+        const captchaEnabled = this.configService.get('CAPTCHA_ENABLED', 'true');
+        if (captchaEnabled === 'false') {
+            return true;
+        }
+        const request = context.switchToHttp().getRequest();
+        const captchaToken = request.headers['x-captcha-token'];
+        const token = Array.isArray(captchaToken) ? captchaToken[0] : captchaToken;
+        if (!token || typeof token !== 'string' || token.trim().length === 0) {
+            throw new common_1.BadRequestException({
+                message: 'Se requiere verificación CAPTCHA.',
+                code: 'CAPTCHA_REQUIRED',
+            });
+        }
+        const secretKey = this.configService.get('RECAPTCHA_SECRET_KEY');
+        if (!secretKey) {
+            this.logger.error('RECAPTCHA_SECRET_KEY no está configurada en el entorno.');
+            throw new common_1.BadRequestException({
+                message: 'Configuración de seguridad inválida.',
+                code: 'CAPTCHA_CONFIG_ERROR',
+            });
+        }
+        let verifyResult;
+        try {
+            verifyResult = await this.verifyWithGoogle(secretKey, token.trim());
+        }
+        catch (error) {
+            this.logger.error('Error de red al contactar servidor reCAPTCHA:', error);
+            throw new common_1.BadRequestException({
+                message: 'No se pudo verificar el CAPTCHA. Intenta de nuevo.',
+                code: 'CAPTCHA_SERVICE_ERROR',
+            });
+        }
+        if (!verifyResult.success) {
+            this.logger.warn(`CAPTCHA fallido. Códigos de error: ${verifyResult['error-codes']?.join(', ')}`);
+            throw new common_1.BadRequestException({
+                message: 'Verificación CAPTCHA inválida. Intenta de nuevo.',
+                code: 'CAPTCHA_INVALID',
+            });
+        }
+        if (verifyResult.score !== undefined && verifyResult.score < this.MIN_SCORE) {
+            this.logger.warn(`CAPTCHA score insuficiente: ${verifyResult.score}. Posible tráfico automatizado.`);
+            throw new common_1.BadRequestException({
+                message: 'Verificación CAPTCHA fallida. Comportamiento sospechoso detectado.',
+                code: 'CAPTCHA_SCORE_LOW',
+            });
+        }
+        this.logger.log(`CAPTCHA válido. Score: ${verifyResult.score ?? 'N/A'}`);
+        return true;
+    }
+    verifyWithGoogle(secret, response) {
+        const postBody = querystring.stringify({ secret, response });
+        const options = {
+            hostname: this.RECAPTCHA_HOST,
+            path: this.RECAPTCHA_PATH,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(postBody),
+            },
+        };
+        return new Promise((resolve, reject) => {
+            const req = https.request(options, (res) => {
+                let raw = '';
+                res.setEncoding('utf8');
+                res.on('data', (chunk) => { raw += chunk; });
+                res.on('end', () => {
+                    try {
+                        resolve(JSON.parse(raw));
+                    }
+                    catch {
+                        reject(new Error(`Respuesta JSON inválida de Google: ${raw}`));
+                    }
+                });
+            });
+            req.on('error', reject);
+            req.setTimeout(7000, () => {
+                req.destroy(new Error('Timeout al verificar CAPTCHA con Google'));
+            });
+            req.write(postBody);
+            req.end();
+        });
+    }
+};
+exports.CaptchaGuard = CaptchaGuard;
+exports.CaptchaGuard = CaptchaGuard = CaptchaGuard_1 = __decorate([
+    (0, common_1.Injectable)(),
+    __metadata("design:paramtypes", [typeof (_a = typeof config_1.ConfigService !== "undefined" && config_1.ConfigService) === "function" ? _a : Object])
+], CaptchaGuard);
 
 
 /***/ }),
@@ -692,10 +835,10 @@ let PermisosGuard = class PermisosGuard {
         }
         const request = context.switchToHttp().getRequest();
         const { user } = request;
-        if (!user || !(user.rol in roles_const_1.Rol)) {
+        if (!user || !(user.idRol in roles_const_1.Rol)) {
             throw new common_1.ForbiddenException('Rol no reconocido o token inválido.');
         }
-        const rolUsuario = user.rol;
+        const rolUsuario = user.idRol;
         const tieneAcceso = permisosRequeridos.every((permiso) => (0, roles_const_1.rolTienePermiso)(rolUsuario, permiso));
         if (!tieneAcceso) {
             throw new common_1.ForbiddenException(`Acceso denegado. Se requieren: [${permisosRequeridos.join(', ')}].`);
@@ -972,7 +1115,13 @@ let JwtStrategy = class JwtStrategy extends (0, passport_1.PassportStrategy)(pas
                 message: 'Token inválido'
             });
         }
-        const data = { sub: payload.sub, usuario: payload.usuario, rol: payload.rol, must_change_password: payload.must_change_password ?? false };
+        const data = {
+            sub: payload.sub,
+            usuario: payload.usuario,
+            rol: payload.rol,
+            idRol: payload.idRol,
+            must_change_password: payload.must_change_password ?? false
+        };
         const usuario = await this.usuariosService.findOne(data.sub, {
             throwException: false,
         });
@@ -5687,8 +5836,9 @@ let EmpresasController = class EmpresasController {
         return (0, utils_1.OkRes)(res, { empresas });
     }
     async findAllCardsPrivate(params, req, res) {
-        const isInvestigador = roles_const_1.ROLES_INVESTIGADORES.includes(req.user.rol);
-        const idUsuario = isInvestigador ? req.user.sub : undefined;
+        const userRol = req.user?.idRol || req.user?.rol;
+        const isInvestigador = roles_const_1.ROLES_INVESTIGADORES.includes(userRol);
+        const idUsuario = isInvestigador ? req.user?.sub : undefined;
         const empresas = await this.empresasService.findAllCardsPrivate(params, idUsuario);
         return (0, utils_1.OkRes)(res, { empresas });
     }
@@ -5697,17 +5847,28 @@ let EmpresasController = class EmpresasController {
         return (0, utils_1.OkRes)(res, { empresa });
     }
     async findOnePrivate(idEmpresa, req, res) {
-        const isInvestigador = roles_const_1.ROLES_INVESTIGADORES.includes(req.user.rol);
-        const idUsuario = isInvestigador ? req.user.sub : undefined;
+        const userRol = req.user?.idRol || req.user?.rol;
+        const isInvestigador = roles_const_1.ROLES_INVESTIGADORES.includes(userRol);
+        const idUsuario = isInvestigador ? req.user?.sub : undefined;
         const empresa = await this.empresasService.findOnePrivate(idEmpresa, idUsuario);
         return (0, utils_1.OkRes)(res, { empresa });
     }
-    async updateEmpresaPrivate(idEmpresa, data, res) {
-        const empresa = await this.empresasService.updateEmpresa(idEmpresa, data);
+    async updateEmpresaPrivate(idEmpresa, data, res, req) {
+        const auditoria = {
+            idAdmin: req.user?.id || req.user?.sub || 1,
+            adminAlias: req.user?.usuario || req.user?.nombreUsuario || 'admin_sistema',
+            ipOrigen: req.ip || req.socket?.remoteAddress || '127.0.0.1',
+        };
+        const empresa = await this.empresasService.updateEmpresa(idEmpresa, data, auditoria);
         return (0, utils_1.OkRes)(res, { message: 'Empresa actualizada correctamente', empresa });
     }
-    async deleteEmpresa(idEmpresa, res) {
-        await this.empresasService.deleteEmpresa(idEmpresa);
+    async deleteEmpresa(idEmpresa, res, req) {
+        const auditoria = {
+            idAdmin: req.user?.id || req.user?.sub || 1,
+            adminAlias: req.user?.usuario || req.user?.nombreUsuario || 'admin_sistema',
+            ipOrigen: req.ip || req.socket?.remoteAddress || '127.0.0.1',
+        };
+        await this.empresasService.deleteEmpresa(idEmpresa, auditoria);
         return (0, utils_1.OkRes)(res, { message: 'Empresa eliminada del sistema' });
     }
 };
@@ -5748,11 +5909,6 @@ __decorate([
         type: find_all_empresas_cards_pagination_response_dto_1.FindAllEmpresasCardsPaginationResponseDto
     }),
     (0, swagger_1.ApiBadRequestResponse)((0, utils_1.SwaggerBadRequestCommon)()),
-    (0, common_1.Get)('cards/private'),
-    (0, common_1.UseGuards)((0, auth_roles_guard_1.AuthRolesGuard)([...roles_const_1.ROLES_ADMIN_EMPRESAS, ...roles_const_1.ROLES_INVESTIGADORES])),
-    (0, swagger_1.ApiOperation)({
-        summary: 'Api para obtener las empresas para las cards de la pagina web, para usuario con sesion'
-    }),
     __param(0, (0, common_1.Query)()),
     __param(1, (0, common_1.Req)()),
     __param(2, (0, common_1.Res)()),
@@ -5787,11 +5943,6 @@ __decorate([
         type: find_one_empresa_private_dto_1.FindOneEmpresaPrivateDto
     }),
     (0, swagger_1.ApiNotFoundResponse)((0, utils_1.SwaggerNotFoundCommon)()),
-    (0, common_1.Get)('private/:idEmpresa'),
-    (0, common_1.UseGuards)((0, auth_roles_guard_1.AuthRolesGuard)([...roles_const_1.ROLES_ADMIN_EMPRESAS, ...roles_const_1.ROLES_INVESTIGADORES])),
-    (0, swagger_1.ApiOperation)({
-        summary: 'Api paara buscar una empresa. para usuarios con sesion',
-    }),
     __param(0, (0, common_1.Param)('idEmpresa', common_1.ParseIntPipe)),
     __param(1, (0, common_1.Req)()),
     __param(2, (0, common_1.Res)()),
@@ -5810,8 +5961,9 @@ __decorate([
     __param(0, (0, common_1.Param)('idEmpresa', common_1.ParseIntPipe)),
     __param(1, (0, common_1.Body)()),
     __param(2, (0, common_1.Res)()),
+    __param(3, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number, Object, typeof (_j = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _j : Object]),
+    __metadata("design:paramtypes", [Number, Object, typeof (_j = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _j : Object, Object]),
     __metadata("design:returntype", Promise)
 ], EmpresasController.prototype, "updateEmpresaPrivate", null);
 __decorate([
@@ -5824,8 +5976,9 @@ __decorate([
     (0, swagger_1.ApiNotFoundResponse)((0, utils_1.SwaggerNotFoundCommon)()),
     __param(0, (0, common_1.Param)('idEmpresa', common_1.ParseIntPipe)),
     __param(1, (0, common_1.Res)()),
+    __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number, typeof (_k = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _k : Object]),
+    __metadata("design:paramtypes", [Number, typeof (_k = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _k : Object, Object]),
     __metadata("design:returntype", Promise)
 ], EmpresasController.prototype, "deleteEmpresa", null);
 exports.EmpresasController = EmpresasController = __decorate([
@@ -15296,7 +15449,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b;
+var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.EmpresasService = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -15308,17 +15461,20 @@ const empresa_public_template_1 = __webpack_require__(/*! ../find-templates/empr
 const empresa_not_found_exception_1 = __webpack_require__(/*! ../exceptions/empresa-not-found.exception */ "./src/modules/empresas/exceptions/empresa-not-found.exception.ts");
 const empresa_private_template_1 = __webpack_require__(/*! ../find-templates/empresa-private.template */ "./src/modules/empresas/find-templates/empresa-private.template.ts");
 const investigador_empresa_entity_1 = __webpack_require__(/*! src/modules/usuarios/entities/investigador-empresa.entity */ "./src/modules/usuarios/entities/investigador-empresa.entity.ts");
+const logs_service_1 = __webpack_require__(/*! src/modules/logs/logs.service */ "./src/modules/logs/logs.service.ts");
 let EmpresasService = class EmpresasService {
     empresaRepository;
     investigadorEmpresaRepository;
-    constructor(empresaRepository, investigadorEmpresaRepository) {
+    logsService;
+    constructor(empresaRepository, investigadorEmpresaRepository, logsService) {
         this.empresaRepository = empresaRepository;
         this.investigadorEmpresaRepository = investigadorEmpresaRepository;
+        this.logsService = logsService;
     }
-    create(createEmpresaDto) {
+    create(_createEmpresaDto) {
         return 'This action adds a new empresa';
     }
-    async createTransaction(manager, data) {
+    async createTransaction(manager, data, auditoria) {
         const repo = manager.getRepository(empresa_entity_1.Empresa);
         const empresa = new empresa_entity_1.Empresa();
         empresa.nombreComercial = data.nombre ? data.nombre.trim() : '';
@@ -15329,40 +15485,40 @@ let EmpresasService = class EmpresasService {
         empresa.actividad = data.actividad ? data.actividad.trim() : '';
         empresa.fechaFundacion = data.fechaFundacion;
         empresa.idTamanio = data.tamanioEmpresa;
-        return await repo.save(empresa);
+        const guardada = await repo.save(empresa);
+        if (auditoria) {
+            void this.logsService.empresaCreada({
+                idUsuario: auditoria.idAdmin,
+                nombreUsuario: auditoria.adminAlias,
+                idEmpresa: guardada.id,
+                nombreEmpresa: guardada.nombreComercial,
+                ipOrigen: auditoria.ipOrigen,
+            });
+        }
+        return guardada;
     }
     async findAll() {
-        const empresas = await this.empresaRepository.find({
+        return this.empresaRepository.find({
             relations: {
-                sedes: {
-                    departamento: true
-                },
+                sedes: { departamento: true },
                 familias: true,
                 fundadores: true,
                 hitos: true,
                 imagenes: true,
                 implementacion: {
                     tiposAcciones: true,
-                    implementacionesAcciones: {
-                        accion: true,
-                        proyectos: true
-                    }
+                    implementacionesAcciones: { accion: true, proyectos: true },
                 },
                 items: true,
                 municipios: true,
                 paisesOperaInteranacionalmente: true,
                 premios: true,
-                rubrosEmpresa: {
-                    rubro: true
-                },
+                rubrosEmpresa: { rubro: true },
                 servicios: true,
                 tamanioEmpresa: true,
-                tiposSocietariosEmpresa: {
-                    tipoSocietario: true
-                }
+                tiposSocietariosEmpresa: { tipoSocietario: true },
             },
         });
-        return empresas;
     }
     async findAllCardsPrivate(params, idUsuario) {
         const query = this.empresaRepository
@@ -15379,22 +15535,13 @@ let EmpresasService = class EmpresasService {
         if (idUsuario) {
             query.innerJoin('investigador_rubro', 'ir', 'ir.id_rubro = rubro.id AND ir.id_usuario = :idUsuario', { idUsuario });
         }
-        query
-            .select([
-            'empresa.id',
-            'empresa.nombreComercial',
-            'imagen.id',
-            'imagen.url',
-            'hito.id',
-            'hito.nombre',
-            'hito.fecha',
-            'sedeCentral.id',
-            'sedeCentral.esCentral',
-            'departamento.id',
-            'departamento.nombre',
-            'rubroEmpresa.id',
-            'rubro.id',
-            'rubro.nombre',
+        query.select([
+            'empresa.id', 'empresa.nombreComercial',
+            'imagen.id', 'imagen.url',
+            'hito.id', 'hito.nombre', 'hito.fecha',
+            'sedeCentral.id', 'sedeCentral.esCentral',
+            'departamento.id', 'departamento.nombre',
+            'rubroEmpresa.id', 'rubro.id', 'rubro.nombre',
         ]);
         const rubros = params.getRubros();
         if (rubros.length > 0)
@@ -15420,12 +15567,9 @@ let EmpresasService = class EmpresasService {
                 fundador: `%${fundador.trim()}%`,
             });
         }
-        const page = params.page;
-        const limit = params.limit;
+        const { page, limit } = params;
         const skip = (page - 1) * limit;
-        query.orderBy('empresa.nombreComercial', 'ASC')
-            .skip(skip)
-            .take(limit);
+        query.orderBy('empresa.nombreComercial', 'ASC').skip(skip).take(limit);
         const [empresas, total] = await query.getManyAndCount();
         const pages = Math.ceil(total / limit);
         const data = empresas.map((empresa) => {
@@ -15434,23 +15578,10 @@ let EmpresasService = class EmpresasService {
             return {
                 id: empresa.id,
                 nombreComercial: empresa.nombreComercial,
-                imagenes: empresa.imagenes?.map((img) => ({
-                    id: img.id,
-                    url: img.url,
-                })) || [],
-                hitos: empresa.hitos?.map((h) => ({
-                    id: h.id,
-                    nombre: h.nombre,
-                    fecha: h.fecha,
-                })) || [],
-                sedeCentral: {
-                    id: depa?.id,
-                    nombre: depa?.nombre,
-                },
-                rubros: empresa.rubrosEmpresa?.map((r) => ({
-                    id: r.rubro?.id,
-                    nombre: r.rubro?.nombre,
-                })) || [],
+                imagenes: empresa.imagenes?.map((img) => ({ id: img.id, url: img.url })) ?? [],
+                hitos: empresa.hitos?.map((h) => ({ id: h.id, nombre: h.nombre, fecha: h.fecha })) ?? [],
+                sedeCentral: { id: depa?.id, nombre: depa?.nombre },
+                rubros: empresa.rubrosEmpresa?.map((r) => ({ id: r.rubro?.id, nombre: r.rubro?.nombre })) ?? [],
             };
         });
         const response = new find_all_empresas_cards_pagination_response_dto_1.FindAllEmpresasCardsPaginationResponseDto();
@@ -15471,32 +15602,21 @@ let EmpresasService = class EmpresasService {
             .leftJoinAndSelect('empresa.sedes', 'sedeCentral', 'sedeCentral.esCentral = true')
             .leftJoinAndSelect('sedeCentral.departamento', 'departamento')
             .select([
-            'empresa.id',
-            'empresa.nombreComercial',
-            'imagen.id',
-            'imagen.url',
-            'hito.id',
-            'hito.nombre',
-            'hito.fecha',
-            'sedeCentral.id',
-            'sedeCentral.esCentral',
-            'departamento.id',
-            'departamento.nombre',
-            'rubroEmpresa.id',
-            'rubro.id',
-            'rubro.nombre',
+            'empresa.id', 'empresa.nombreComercial',
+            'imagen.id', 'imagen.url',
+            'hito.id', 'hito.nombre', 'hito.fecha',
+            'sedeCentral.id', 'sedeCentral.esCentral',
+            'departamento.id', 'departamento.nombre',
+            'rubroEmpresa.id', 'rubro.id', 'rubro.nombre',
         ]);
         if (params.nombre && params.nombre.trim() !== '') {
             query.andWhere('LOWER(empresa.nombreComercial) LIKE LOWER(:nombre)', {
                 nombre: `%${params.nombre.trim()}%`,
             });
         }
-        const page = params.page;
-        const limit = params.limit;
+        const { page, limit } = params;
         const skip = (page - 1) * limit;
-        query.orderBy('empresa.nombreComercial', 'ASC')
-            .skip(skip)
-            .take(limit);
+        query.orderBy('empresa.nombreComercial', 'ASC').skip(skip).take(limit);
         const [empresas, total] = await query.getManyAndCount();
         const pages = Math.ceil(total / limit);
         const data = empresas.map((empresa) => {
@@ -15505,23 +15625,10 @@ let EmpresasService = class EmpresasService {
             return {
                 id: empresa.id,
                 nombreComercial: empresa.nombreComercial,
-                imagenes: empresa.imagenes?.map((img) => ({
-                    id: img.id,
-                    url: img.url,
-                })) || [],
-                hitos: empresa.hitos?.map((h) => ({
-                    id: h.id,
-                    nombre: h.nombre,
-                    fecha: h.fecha,
-                })) || [],
-                sedeCentral: {
-                    id: depa?.id,
-                    nombre: depa?.nombre,
-                },
-                rubros: empresa.rubrosEmpresa?.map((r) => ({
-                    id: r.rubro?.id,
-                    nombre: r.rubro?.nombre,
-                })) || [],
+                imagenes: empresa.imagenes?.map((img) => ({ id: img.id, url: img.url })) ?? [],
+                hitos: empresa.hitos?.map((h) => ({ id: h.id, nombre: h.nombre, fecha: h.fecha })) ?? [],
+                sedeCentral: { id: depa?.id, nombre: depa?.nombre },
+                rubros: empresa.rubrosEmpresa?.map((r) => ({ id: r.rubro?.id, nombre: r.rubro?.nombre })) ?? [],
             };
         });
         const response = new find_all_empresas_cards_pagination_response_dto_1.FindAllEmpresasCardsPaginationResponseDto();
@@ -15534,32 +15641,25 @@ let EmpresasService = class EmpresasService {
     }
     async findOne(idEmpresa, selectOptions, relationsOptions) {
         const empresa = await this.empresaRepository.findOne({
-            where: {
-                id: idEmpresa,
-            },
+            where: { id: idEmpresa },
             relations: relationsOptions,
             select: selectOptions,
         });
-        if (!empresa) {
+        if (!empresa)
             throw new empresa_not_found_exception_1.EmpresaNotFoundException(idEmpresa);
-        }
         return empresa;
     }
     async findOnePublic(idEmpresa) {
         const data = await this.findOne(idEmpresa, empresa_public_template_1.EmpresaPublicTemplateSelect, empresa_public_template_1.EmpresaPublicTemplateRelations);
-        const empresa = {
+        return {
             id: data.id,
             nombreComercial: data.nombreComercial,
             mensaje: data.mensaje,
-            rubrosEmpresa: data.rubrosEmpresa?.map(r => ({
-                rubro: r.rubro,
-                esActivo: r.esActivo
-            })),
-            departamento: data.sedes?.find(s => s.esCentral === true)?.departamento,
-            imagenes: data.imagenes?.map(i => i.url),
+            rubrosEmpresa: data.rubrosEmpresa?.map((r) => ({ rubro: r.rubro, esActivo: r.esActivo })),
+            departamento: data.sedes?.find((s) => s.esCentral === true)?.departamento,
+            imagenes: data.imagenes?.map((i) => i.url),
             hitos: data.hitos,
         };
-        return empresa;
     }
     async findOnePrivate(idEmpresa, idUsuario) {
         if (idUsuario) {
@@ -15567,59 +15667,89 @@ let EmpresasService = class EmpresasService {
             if (!asignado)
                 throw new empresa_not_found_exception_1.EmpresaNotFoundException(idEmpresa);
         }
-        const data = await this.findOne(idEmpresa, empresa_private_template_1.EmpresaPrivateTemplateSelect, empresa_private_template_1.EmpresaPrivateTemplateRelations);
-        return data;
+        return this.findOne(idEmpresa, empresa_private_template_1.EmpresaPrivateTemplateSelect, empresa_private_template_1.EmpresaPrivateTemplateRelations);
     }
-    async updateEmpresa(idEmpresa, data) {
-        await this.findOne(idEmpresa);
+    async updateEmpresa(idEmpresa, data, auditoria) {
+        const estadoPrevio = await this.findOne(idEmpresa);
         const camposBasicos = {};
-        if (data.nombreComercial !== undefined)
-            camposBasicos.nombreComercial = data.nombreComercial;
-        if (data.vision !== undefined)
-            camposBasicos.vision = data.vision;
-        if (data.mision !== undefined)
-            camposBasicos.mision = data.mision;
-        if (data.actividad !== undefined)
-            camposBasicos.actividad = data.actividad;
-        if (data.direccionWeb !== undefined)
-            camposBasicos.direccionWeb = data.direccionWeb;
-        if (data.mensaje !== undefined)
-            camposBasicos.mensaje = data.mensaje;
-        if (Object.keys(camposBasicos).length > 0) {
-            await this.empresaRepository.update(idEmpresa, camposBasicos);
+        const camposModificados = [];
+        const nombreNuevo = data.nombreComercial || data.nombre;
+        if (nombreNuevo !== undefined && nombreNuevo.trim() !== estadoPrevio.nombreComercial) {
+            camposBasicos.nombreComercial = nombreNuevo.trim();
+            camposModificados.push('nombreComercial');
         }
-        return await this.findOnePrivate(idEmpresa);
+        if (data.vision !== undefined && data.vision.trim() !== estadoPrevio.vision) {
+            camposBasicos.vision = data.vision.trim();
+            camposModificados.push('vision');
+        }
+        if (data.mision !== undefined && data.mision.trim() !== estadoPrevio.mision) {
+            camposBasicos.mision = data.mision.trim();
+            camposModificados.push('mision');
+        }
+        if (data.actividad !== undefined && data.actividad.trim() !== estadoPrevio.actividad) {
+            camposBasicos.actividad = data.actividad.trim();
+            camposModificados.push('actividad');
+        }
+        if (data.direccionWeb !== undefined && data.direccionWeb.trim() !== estadoPrevio.direccionWeb) {
+            camposBasicos.direccionWeb = data.direccionWeb.trim();
+            camposModificados.push('direccionWeb');
+        }
+        const mensajeNuevo = data.mensaje || data.mensajeConmemorativo;
+        if (mensajeNuevo !== undefined && mensajeNuevo.trim() !== estadoPrevio.mensaje) {
+            camposBasicos.mensaje = mensajeNuevo.trim();
+            camposModificados.push('mensaje');
+        }
+        if (camposModificados.length > 0) {
+            await this.empresaRepository.update(idEmpresa, camposBasicos);
+            void this.logsService.empresaModificada({
+                idUsuario: auditoria.idAdmin,
+                nombreUsuario: auditoria.adminAlias,
+                idEmpresa: idEmpresa,
+                nombreEmpresa: estadoPrevio.nombreComercial,
+                camposModificados,
+                ipOrigen: auditoria.ipOrigen,
+            });
+        }
+        return this.findOnePrivate(idEmpresa);
     }
-    async deleteEmpresa(idEmpresa) {
-        await this.findOne(idEmpresa);
-        await this.empresaRepository.manager.transaction(async (transactionManager) => {
-            await transactionManager.query(`DELETE FROM "proyectos" 
+    async deleteEmpresa(idEmpresa, auditoria) {
+        const empresa = await this.findOne(idEmpresa);
+        const nombreEmpresa = empresa.nombreComercial;
+        await this.empresaRepository.manager.transaction(async (tm) => {
+            await tm.query(`DELETE FROM "proyectos"
                  WHERE "id_implementacion_accion" IN (
-                    SELECT "id_implementacion_accion" FROM "implementaciones_acciones" 
+                    SELECT "id_implementacion_accion" FROM "implementaciones_acciones"
                     WHERE "id_implementacion" IN (
                         SELECT "id_implementacion" FROM "implementaciones" WHERE "id_empresa" = $1
                     )
                  )`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "tipos_acciones_implementaciones" 
+            await tm.query(`DELETE FROM "tipos_acciones_implementaciones"
                  WHERE "id_implementacion" IN (
                     SELECT "id_implementacion" FROM "implementaciones" WHERE "id_empresa" = $1
                  )`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "implementaciones_acciones" 
+            await tm.query(`DELETE FROM "implementaciones_acciones"
                  WHERE "id_implementacion" IN (
                     SELECT "id_implementacion" FROM "implementaciones" WHERE "id_empresa" = $1
                  )`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "municipios_empresas" WHERE "id_empresa" = $1`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "premios" WHERE "id_empresa" = $1`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "implementaciones" WHERE "id_empresa" = $1`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "familias" WHERE "id_empresa" = $1`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "fundadores" WHERE "id_empresa" = $1`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "hitos" WHERE "id_empresa" = $1`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "imagenes" WHERE "id_empresa" = $1`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "sedes" WHERE "id_empresa" = $1`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "items" WHERE "id_empresa" = $1`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "servicios" WHERE "id_empresa" = $1`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "investigador_empresa" WHERE "id_empresa" = $1`, [idEmpresa]);
-            await transactionManager.query(`DELETE FROM "empresas" WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "municipios_empresas" WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "premios"             WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "implementaciones"    WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "familias"            WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "fundadores"          WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "hitos"               WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "imagenes"            WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "sedes"               WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "items"               WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "servicios"           WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "investigador_empresa" WHERE "id_empresa" = $1`, [idEmpresa]);
+            await tm.query(`DELETE FROM "empresas" WHERE "id_empresa" = $1`, [idEmpresa]);
+        });
+        void this.logsService.empresaEliminada({
+            idUsuario: auditoria.idAdmin,
+            nombreUsuario: auditoria.adminAlias,
+            idEmpresa,
+            nombreEmpresa,
+            ipOrigen: auditoria.ipOrigen,
         });
         return true;
     }
@@ -15629,7 +15759,7 @@ exports.EmpresasService = EmpresasService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(empresa_entity_1.Empresa)),
     __param(1, (0, typeorm_1.InjectRepository)(investigador_empresa_entity_1.InvestigadorEmpresa)),
-    __metadata("design:paramtypes", [typeof (_a = typeof typeorm_2.Repository !== "undefined" && typeorm_2.Repository) === "function" ? _a : Object, typeof (_b = typeof typeorm_2.Repository !== "undefined" && typeorm_2.Repository) === "function" ? _b : Object])
+    __metadata("design:paramtypes", [typeof (_a = typeof typeorm_2.Repository !== "undefined" && typeorm_2.Repository) === "function" ? _a : Object, typeof (_b = typeof typeorm_2.Repository !== "undefined" && typeorm_2.Repository) === "function" ? _b : Object, typeof (_c = typeof logs_service_1.LogsService !== "undefined" && logs_service_1.LogsService) === "function" ? _c : Object])
 ], EmpresasService);
 
 
@@ -15766,65 +15896,170 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a;
+var _a, _b, _c, _d, _e, _f, _g;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LogsController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const swagger_1 = __webpack_require__(/*! @nestjs/swagger */ "@nestjs/swagger");
+const express_1 = __webpack_require__(/*! express */ "express");
 const auth_roles_guard_1 = __webpack_require__(/*! ../../app/services/auth/guards/auth-roles.guard */ "./src/app/services/auth/guards/auth-roles.guard.ts");
-const permisos_guard_1 = __webpack_require__(/*! ../../app/services/auth/permisos.guard */ "./src/app/services/auth/permisos.guard.ts");
-const requiere_permisos_decorator_1 = __webpack_require__(/*! ../../shared/decorators/requiere-permisos.decorator */ "./src/shared/decorators/requiere-permisos.decorator.ts");
-const roles_const_1 = __webpack_require__(/*! src/shared/constants/roles.const */ "./src/shared/constants/roles.const.ts");
 const logs_service_1 = __webpack_require__(/*! ./logs.service */ "./src/modules/logs/logs.service.ts");
-const log_entity_1 = __webpack_require__(/*! ./log.entity */ "./src/modules/logs/log.entity.ts");
+function parsearFiltros(raw) {
+    const limpiar = (v) => v && v.trim() !== '' && v !== 'all' ? v.trim() : undefined;
+    return {
+        page: raw.page ? Math.max(1, parseInt(raw.page, 10) || 1) : 1,
+        limit: raw.limit ? Math.min(100, Math.max(1, parseInt(raw.limit, 10) || 20)) : 20,
+        usuario: limpiar(raw.usuario),
+        accion: limpiar(raw.accion),
+        severidad: limpiar(raw.severidad),
+        entidad: limpiar(raw.entidad),
+        fechaDesde: limpiar(raw.fechaDesde),
+        fechaHasta: limpiar(raw.fechaHasta),
+    };
+}
 let LogsController = class LogsController {
     logsService;
     constructor(logsService) {
         this.logsService = logsService;
     }
-    getLogsSeguridad(limit) {
-        return this.logsService.findByTipo(log_entity_1.TipoLog.SEGURIDAD, limit ? +limit : 100);
+    async getLogsSeguridad(query) {
+        const filtros = parsearFiltros(query);
+        return this.logsService.findLogsSeguridad(filtros);
     }
-    getLogsAplicacion(limit) {
-        return this.logsService.findByTipo(log_entity_1.TipoLog.APLICACION, limit ? +limit : 100);
+    async getLogsAplicacion(query) {
+        const filtros = parsearFiltros(query);
+        return this.logsService.findLogsAplicacion(filtros);
     }
-    getHistorialUsuario(idUsuario, limit) {
-        return this.logsService.historialUsuario(idUsuario, limit ? +limit : 50);
+    async getHistorialUsuario(idUsuario, limit) {
+        const limitNum = limit ? Math.min(100, Math.max(1, parseInt(limit, 10) || 50)) : 50;
+        return this.logsService.historialUsuario(idUsuario, limitNum);
+    }
+    async exportarLogs(tipo, query, res) {
+        const filtros = parsearFiltros({ ...query, limit: '10000' });
+        let resultado;
+        if (tipo === 'seguridad') {
+            resultado = await this.logsService.findLogsSeguridad(filtros);
+        }
+        else if (tipo === 'aplicacion') {
+            resultado = await this.logsService.findLogsAplicacion(filtros);
+        }
+        else {
+            res.status(400).json({ message: 'Tipo de log inválido. Use "seguridad" o "aplicacion".' });
+            return;
+        }
+        const csv = generarCsv(resultado.data);
+        const fecha = new Date().toISOString().slice(0, 10);
+        const nombreArchivo = `orbis-logs-${tipo}-${fecha}.csv`;
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivo}"`);
+        res.send('\uFEFF' + csv);
+    }
+    async getLogById(id) {
+        const log = await this.logsService.findOne(id);
+        if (!log) {
+            throw new common_1.NotFoundException(`Log con ID ${id} no encontrado.`);
+        }
+        return log;
     }
 };
 exports.LogsController = LogsController;
 __decorate([
-    (0, swagger_1.ApiOperation)({ summary: 'Listar logs de seguridad (últimos 100)' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Logs de seguridad con filtros y paginación' }),
+    (0, swagger_1.ApiQuery)({ name: 'page', required: false, type: Number }),
+    (0, swagger_1.ApiQuery)({ name: 'limit', required: false, type: Number }),
+    (0, swagger_1.ApiQuery)({ name: 'usuario', required: false, type: String }),
+    (0, swagger_1.ApiQuery)({ name: 'accion', required: false, type: String }),
+    (0, swagger_1.ApiQuery)({ name: 'severidad', required: false, enum: ['ALTO', 'MEDIO', 'BAJO'] }),
+    (0, swagger_1.ApiQuery)({ name: 'fechaDesde', required: false, type: String }),
+    (0, swagger_1.ApiQuery)({ name: 'fechaHasta', required: false, type: String }),
+    (0, common_1.UseGuards)((0, auth_roles_guard_1.AuthRolesGuard)([1, 2])),
     (0, common_1.Get)('seguridad'),
-    __param(0, (0, common_1.Query)('limit')),
+    __param(0, (0, common_1.Query)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
-    __metadata("design:returntype", void 0)
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", typeof (_b = typeof Promise !== "undefined" && Promise) === "function" ? _b : Object)
 ], LogsController.prototype, "getLogsSeguridad", null);
 __decorate([
-    (0, swagger_1.ApiOperation)({ summary: 'Listar logs de aplicación (últimos 100)' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Logs de aplicación con filtros y paginación' }),
+    (0, swagger_1.ApiQuery)({ name: 'page', required: false, type: Number }),
+    (0, swagger_1.ApiQuery)({ name: 'limit', required: false, type: Number }),
+    (0, swagger_1.ApiQuery)({ name: 'usuario', required: false, type: String }),
+    (0, swagger_1.ApiQuery)({ name: 'accion', required: false, type: String }),
+    (0, swagger_1.ApiQuery)({ name: 'entidad', required: false, type: String }),
+    (0, swagger_1.ApiQuery)({ name: 'fechaDesde', required: false, type: String }),
+    (0, swagger_1.ApiQuery)({ name: 'fechaHasta', required: false, type: String }),
+    (0, common_1.UseGuards)((0, auth_roles_guard_1.AuthRolesGuard)([1, 2, 3])),
     (0, common_1.Get)('aplicacion'),
-    __param(0, (0, common_1.Query)('limit')),
+    __param(0, (0, common_1.Query)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
-    __metadata("design:returntype", void 0)
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", typeof (_c = typeof Promise !== "undefined" && Promise) === "function" ? _c : Object)
 ], LogsController.prototype, "getLogsAplicacion", null);
 __decorate([
     (0, swagger_1.ApiOperation)({ summary: 'Historial de auditoría de un usuario específico' }),
+    (0, swagger_1.ApiQuery)({ name: 'limit', required: false, type: Number }),
+    (0, common_1.UseGuards)((0, auth_roles_guard_1.AuthRolesGuard)([1, 2])),
     (0, common_1.Get)('usuario/:id'),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
     __param(1, (0, common_1.Query)('limit')),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Number, String]),
-    __metadata("design:returntype", void 0)
+    __metadata("design:returntype", typeof (_d = typeof Promise !== "undefined" && Promise) === "function" ? _d : Object)
 ], LogsController.prototype, "getHistorialUsuario", null);
+__decorate([
+    (0, swagger_1.ApiOperation)({ summary: 'Exportar logs a CSV (solo SUPERADMIN)' }),
+    (0, common_1.UseGuards)((0, auth_roles_guard_1.AuthRolesGuard)([1])),
+    (0, common_1.Get)('export/:tipo'),
+    __param(0, (0, common_1.Param)('tipo')),
+    __param(1, (0, common_1.Query)()),
+    __param(2, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, typeof (_e = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _e : Object]),
+    __metadata("design:returntype", typeof (_f = typeof Promise !== "undefined" && Promise) === "function" ? _f : Object)
+], LogsController.prototype, "exportarLogs", null);
+__decorate([
+    (0, swagger_1.ApiOperation)({ summary: 'Detalle completo de un registro de log' }),
+    (0, common_1.UseGuards)((0, auth_roles_guard_1.AuthRolesGuard)([1, 2, 3])),
+    (0, common_1.Get)(':id'),
+    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number]),
+    __metadata("design:returntype", typeof (_g = typeof Promise !== "undefined" && Promise) === "function" ? _g : Object)
+], LogsController.prototype, "getLogById", null);
 exports.LogsController = LogsController = __decorate([
     (0, swagger_1.ApiTags)('Logs de Auditoría'),
-    (0, common_1.UseGuards)((0, auth_roles_guard_1.AuthRolesGuard)([]), permisos_guard_1.PermisosGuard),
-    (0, requiere_permisos_decorator_1.RequierePermisos)(roles_const_1.Permiso.LOGS_LEER),
     (0, common_1.Controller)('api/logs'),
     __metadata("design:paramtypes", [typeof (_a = typeof logs_service_1.LogsService !== "undefined" && logs_service_1.LogsService) === "function" ? _a : Object])
 ], LogsController);
+function escaparCsv(valor) {
+    if (valor === null || valor === undefined)
+        return '';
+    const str = typeof valor === 'object' ? JSON.stringify(valor) : String(valor);
+    if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+        return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+}
+function generarCsv(logs) {
+    if (logs.length === 0)
+        return 'Sin registros\n';
+    const CABECERAS = [
+        'ID', 'Tipo', 'Acción', 'Usuario', 'IP Origen',
+        'Recurso', 'Exitoso', 'Detalles', 'Fecha y hora',
+    ];
+    const filas = logs.map((log) => [
+        log.id,
+        log.tipo,
+        log.accion,
+        log.nombreUsuario ?? '',
+        log.ipOrigen ?? '',
+        log.recurso ?? '',
+        log.exitoso ? 'Sí' : 'No',
+        log.detalles ? JSON.stringify(log.detalles) : '',
+        log.creadoEn ? new Date(log.creadoEn).toISOString() : '',
+    ].map(escaparCsv).join(','));
+    return [CABECERAS.join(','), ...filas].join('\n');
+}
 
 
 /***/ }),
@@ -15892,15 +16127,31 @@ const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const typeorm_1 = __webpack_require__(/*! @nestjs/typeorm */ "@nestjs/typeorm");
 const typeorm_2 = __webpack_require__(/*! typeorm */ "typeorm");
 const log_entity_1 = __webpack_require__(/*! ./log.entity */ "./src/modules/logs/log.entity.ts");
+const SEVERIDAD_POR_ACCION = {
+    [log_entity_1.AccionLog.LOGIN_FALLIDO]: 'ALTO',
+    [log_entity_1.AccionLog.CUENTA_BLOQUEADA]: 'ALTO',
+    [log_entity_1.AccionLog.TOKEN_INVALIDO]: 'ALTO',
+    [log_entity_1.AccionLog.ACCESO_DENEGADO]: 'ALTO',
+    [log_entity_1.AccionLog.CUENTA_DESBLOQUEADA]: 'MEDIO',
+    [log_entity_1.AccionLog.RESET_PASSWORD_SOLICIT]: 'MEDIO',
+};
+function calcularSeveridad(accion) {
+    return SEVERIDAD_POR_ACCION[accion] ?? 'BAJO';
+}
+function accionesPorSeveridad(severidad) {
+    return Object.entries(SEVERIDAD_POR_ACCION)
+        .filter(([, sev]) => sev === severidad)
+        .map(([accion]) => accion);
+}
 let LogsService = LogsService_1 = class LogsService {
-    logsRepository;
+    logsRepo;
     logger = new common_1.Logger(LogsService_1.name);
-    constructor(logsRepository) {
-        this.logsRepository = logsRepository;
+    constructor(logsRepo) {
+        this.logsRepo = logsRepo;
     }
     async registrar(tipo, accion, datos) {
         try {
-            const log = this.logsRepository.create({
+            const log = this.logsRepo.create({
                 tipo,
                 accion,
                 idUsuario: datos.idUsuario ?? null,
@@ -15910,11 +16161,11 @@ let LogsService = LogsService_1 = class LogsService {
                 detalles: datos.detalles ?? null,
                 exitoso: datos.exitoso ?? true,
             });
-            await this.logsRepository.save(log);
+            await this.logsRepo.save(log);
         }
         catch (error) {
-            const mensaje = error instanceof Error ? error.message : String(error);
-            this.logger.error(`Error al persistir log [${tipo}:${accion}]: ${mensaje}`);
+            const msg = error instanceof Error ? error.message : String(error);
+            this.logger.error(`Error al persistir log [${tipo}:${accion}]: ${msg}`);
         }
     }
     async loginExitoso(params) {
@@ -15930,9 +16181,7 @@ let LogsService = LogsService_1 = class LogsService {
             nombreUsuario: params.nombreUsuario,
             ipOrigen: params.ipOrigen,
             exitoso: false,
-            detalles: {
-                intentosRestantes: params.intentosRestantes,
-            },
+            detalles: { intentosRestantes: params.intentosRestantes },
         });
     }
     async cuentaBloqueada(params) {
@@ -16004,9 +16253,7 @@ let LogsService = LogsService_1 = class LogsService {
             ipOrigen: params.ipOrigen,
             recurso: `Empresa #${params.idEmpresa} (${params.nombreEmpresa})`,
             exitoso: true,
-            detalles: {
-                camposModificados: params.camposModificados,
-            },
+            detalles: { camposModificados: params.camposModificados },
         });
     }
     async empresaEliminada(params) {
@@ -16025,9 +16272,28 @@ let LogsService = LogsService_1 = class LogsService {
             ipOrigen: params.ipOrigen,
             recurso: `Usuario #${params.idUsuarioNuevo} (${params.nombreUsuarioNuevo})`,
             exitoso: true,
+            detalles: { rolAsignado: params.rolAsignado },
+        });
+    }
+    async usuarioModificado(params) {
+        await this.registrar(log_entity_1.TipoLog.APLICACION, log_entity_1.AccionLog.USUARIO_MODIFICADO, {
+            idUsuario: params.idAdministrador,
+            nombreUsuario: params.nombreAdministrador,
+            ipOrigen: params.ipOrigen,
+            recurso: `Usuario #${params.idUsuarioAfectado} (${params.nombreUsuarioAfectado})`,
+            exitoso: true,
             detalles: {
-                rolAsignado: params.rolAsignado,
+                camposModificados: params.camposModificados,
             },
+        });
+    }
+    async usuarioEliminado(params) {
+        await this.registrar(log_entity_1.TipoLog.APLICACION, log_entity_1.AccionLog.USUARIO_ELIMINADO, {
+            idUsuario: params.idAdministrador,
+            nombreUsuario: params.nombreAdministrador,
+            ipOrigen: params.ipOrigen,
+            recurso: `Usuario #${params.idUsuarioAfectado} (${params.nombreUsuarioAfectado})`,
+            exitoso: true,
         });
     }
     async riesgoCreado(params) {
@@ -16050,9 +16316,7 @@ let LogsService = LogsService_1 = class LogsService {
             ipOrigen: params.ipOrigen,
             recurso: `Riesgo #${params.idRiesgo}`,
             exitoso: true,
-            detalles: {
-                nivelRiesgo: params.nivelRiesgo,
-            },
+            detalles: { nivelRiesgo: params.nivelRiesgo },
         });
     }
     async riesgoEliminado(params) {
@@ -16064,19 +16328,95 @@ let LogsService = LogsService_1 = class LogsService {
             exitoso: true,
         });
     }
-    async findByTipo(tipo, limit = 100) {
-        return this.logsRepository.find({
-            where: { tipo },
-            order: { creadoEn: 'DESC' },
-            take: limit,
-        });
+    async findLogsSeguridad(filtros) {
+        const page = Math.max(1, filtros.page ?? 1);
+        const limit = Math.min(100, Math.max(1, filtros.limit ?? 20));
+        const skip = (page - 1) * limit;
+        const qb = this.logsRepo
+            .createQueryBuilder('log')
+            .where('log.tipo = :tipo', { tipo: log_entity_1.TipoLog.SEGURIDAD });
+        if (filtros.usuario?.trim()) {
+            qb.andWhere('LOWER(log.nombreUsuario) LIKE LOWER(:usuario)', {
+                usuario: `%${filtros.usuario.trim()}%`,
+            });
+        }
+        if (filtros.accion?.trim()) {
+            qb.andWhere('log.accion = :accion', { accion: filtros.accion.trim() });
+        }
+        if (filtros.severidad) {
+            const acciones = accionesPorSeveridad(filtros.severidad);
+            if (acciones.length > 0) {
+                qb.andWhere('log.accion IN (:...accionesSev)', { accionesSev: acciones });
+            }
+            else {
+                const accionesAltoMedio = [
+                    ...accionesPorSeveridad('ALTO'),
+                    ...accionesPorSeveridad('MEDIO'),
+                ];
+                if (accionesAltoMedio.length > 0) {
+                    qb.andWhere('log.accion NOT IN (:...accionesExcluidas)', {
+                        accionesExcluidas: accionesAltoMedio,
+                    });
+                }
+            }
+        }
+        if (filtros.fechaDesde) {
+            qb.andWhere('log.creadoEn >= :desde', { desde: new Date(filtros.fechaDesde) });
+        }
+        if (filtros.fechaHasta) {
+            const hasta = new Date(filtros.fechaHasta);
+            hasta.setHours(23, 59, 59, 999);
+            qb.andWhere('log.creadoEn <= :hasta', { hasta });
+        }
+        qb.orderBy('log.creadoEn', 'DESC')
+            .skip(skip)
+            .take(limit);
+        const [rows, total] = await qb.getManyAndCount();
+        return { data: rows, total, page, limit };
+    }
+    async findLogsAplicacion(filtros) {
+        const page = Math.max(1, filtros.page ?? 1);
+        const limit = Math.min(100, Math.max(1, filtros.limit ?? 20));
+        const skip = (page - 1) * limit;
+        const qb = this.logsRepo
+            .createQueryBuilder('log')
+            .where('log.tipo = :tipo', { tipo: log_entity_1.TipoLog.APLICACION });
+        if (filtros.usuario?.trim()) {
+            qb.andWhere('LOWER(log.nombreUsuario) LIKE LOWER(:usuario)', {
+                usuario: `%${filtros.usuario.trim()}%`,
+            });
+        }
+        if (filtros.accion?.trim()) {
+            qb.andWhere('log.accion = :accion', { accion: filtros.accion.trim() });
+        }
+        if (filtros.entidad?.trim()) {
+            qb.andWhere('LOWER(log.recurso) LIKE LOWER(:entidad)', {
+                entidad: `%${filtros.entidad.trim()}%`,
+            });
+        }
+        if (filtros.fechaDesde) {
+            qb.andWhere('log.creadoEn >= :desde', { desde: new Date(filtros.fechaDesde) });
+        }
+        if (filtros.fechaHasta) {
+            const hasta = new Date(filtros.fechaHasta);
+            hasta.setHours(23, 59, 59, 999);
+            qb.andWhere('log.creadoEn <= :hasta', { hasta });
+        }
+        qb.orderBy('log.creadoEn', 'DESC')
+            .skip(skip)
+            .take(limit);
+        const [rows, total] = await qb.getManyAndCount();
+        return { data: rows, total, page, limit };
     }
     async historialUsuario(idUsuario, limit = 50) {
-        return this.logsRepository.find({
+        return this.logsRepo.find({
             where: { idUsuario },
             order: { creadoEn: 'DESC' },
             take: limit,
         });
+    }
+    async findOne(id) {
+        return this.logsRepo.findOne({ where: { id } });
     }
 };
 exports.LogsService = LogsService;
@@ -16089,10 +16429,10 @@ exports.LogsService = LogsService = LogsService_1 = __decorate([
 
 /***/ }),
 
-/***/ "./src/modules/riesgos/riesgo.dto.ts":
-/*!*******************************************!*\
-  !*** ./src/modules/riesgos/riesgo.dto.ts ***!
-  \*******************************************/
+/***/ "./src/modules/riesgos/create-riesgo.dto.ts":
+/*!**************************************************!*\
+  !*** ./src/modules/riesgos/create-riesgo.dto.ts ***!
+  \**************************************************/
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
@@ -16105,113 +16445,93 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a, _b;
+var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.UpdateRiesgoDto = exports.CreateRiesgoDto = void 0;
+exports.CreateRiesgoDto = void 0;
 const class_validator_1 = __webpack_require__(/*! class-validator */ "class-validator");
-const mapped_types_1 = __webpack_require__(/*! @nestjs/mapped-types */ "@nestjs/mapped-types");
-const swagger_1 = __webpack_require__(/*! @nestjs/swagger */ "@nestjs/swagger");
 const riesgo_entity_1 = __webpack_require__(/*! ./riesgo.entity */ "./src/modules/riesgos/riesgo.entity.ts");
 class CreateRiesgoDto {
-    titulo;
-    descripcion;
-    categoria;
-    probabilidad;
-    impacto;
-    consecuencias;
-    planAccion;
-    controlesExistentes;
-    fechaIdentificacion;
-    fechaRevision;
-    idResponsable;
+    activo_informacion;
+    aplicativos_sistemas;
+    amenaza_vulnerabilidad;
+    riesgo_consecuencia;
+    probabilidad_inherente;
+    impacto_inherente;
+    tratamiento_riesgo;
+    controles_implementar;
+    tipo_control;
+    nivel_control;
+    frecuencia_control;
+    probabilidad_residual;
+    impacto_residual;
 }
 exports.CreateRiesgoDto = CreateRiesgoDto;
 __decorate([
-    (0, swagger_1.ApiProperty)({ example: 'Acceso no autorizado a base de datos de empresas' }),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsNotEmpty)(),
-    (0, class_validator_1.MinLength)(5),
-    (0, class_validator_1.MaxLength)(200),
     __metadata("design:type", String)
-], CreateRiesgoDto.prototype, "titulo", void 0);
+], CreateRiesgoDto.prototype, "activo_informacion", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ example: 'Un actor interno podría explotar credenciales débiles...' }),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsNotEmpty)(),
-    (0, class_validator_1.MinLength)(10),
     __metadata("design:type", String)
-], CreateRiesgoDto.prototype, "descripcion", void 0);
+], CreateRiesgoDto.prototype, "aplicativos_sistemas", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ enum: riesgo_entity_1.CategoriaRiesgo, example: riesgo_entity_1.CategoriaRiesgo.SEGURIDAD_INFORMACION }),
-    (0, class_validator_1.IsEnum)(riesgo_entity_1.CategoriaRiesgo),
-    __metadata("design:type", typeof (_a = typeof riesgo_entity_1.CategoriaRiesgo !== "undefined" && riesgo_entity_1.CategoriaRiesgo) === "function" ? _a : Object)
-], CreateRiesgoDto.prototype, "categoria", void 0);
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateRiesgoDto.prototype, "amenaza_vulnerabilidad", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ minimum: 1, maximum: 5, description: '1=Muy improbable, 5=Casi seguro' }),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CreateRiesgoDto.prototype, "riesgo_consecuencia", void 0);
+__decorate([
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(1),
     (0, class_validator_1.Max)(5),
     __metadata("design:type", Number)
-], CreateRiesgoDto.prototype, "probabilidad", void 0);
+], CreateRiesgoDto.prototype, "probabilidad_inherente", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ minimum: 1, maximum: 5, description: '1=Insignificante, 5=Catastrófico' }),
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(1),
     (0, class_validator_1.Max)(5),
     __metadata("design:type", Number)
-], CreateRiesgoDto.prototype, "impacto", void 0);
+], CreateRiesgoDto.prototype, "impacto_inherente", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ example: 'Exposición de datos confidenciales de 200+ empresas.' }),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", String)
-], CreateRiesgoDto.prototype, "consecuencias", void 0);
+], CreateRiesgoDto.prototype, "tratamiento_riesgo", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ example: 'Implementar MFA en 30 días, auditoría de accesos mensual.' }),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", String)
-], CreateRiesgoDto.prototype, "planAccion", void 0);
+], CreateRiesgoDto.prototype, "controles_implementar", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ example: 'Política de contraseñas vigente, firewall configurado.' }),
-    (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsString)(),
-    __metadata("design:type", String)
-], CreateRiesgoDto.prototype, "controlesExistentes", void 0);
+    (0, class_validator_1.IsEnum)(riesgo_entity_1.TipoControl),
+    __metadata("design:type", typeof (_a = typeof riesgo_entity_1.TipoControl !== "undefined" && riesgo_entity_1.TipoControl) === "function" ? _a : Object)
+], CreateRiesgoDto.prototype, "tipo_control", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ example: '2026-05-24', description: 'Fecha de identificación del riesgo (ISO 8601)' }),
-    (0, class_validator_1.IsDateString)(),
-    __metadata("design:type", String)
-], CreateRiesgoDto.prototype, "fechaIdentificacion", void 0);
+    (0, class_validator_1.IsEnum)(riesgo_entity_1.NivelControl),
+    __metadata("design:type", typeof (_b = typeof riesgo_entity_1.NivelControl !== "undefined" && riesgo_entity_1.NivelControl) === "function" ? _b : Object)
+], CreateRiesgoDto.prototype, "nivel_control", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ example: '2026-06-24' }),
-    (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsDateString)(),
-    __metadata("design:type", String)
-], CreateRiesgoDto.prototype, "fechaRevision", void 0);
+    (0, class_validator_1.IsEnum)(riesgo_entity_1.FrecuenciaControl),
+    __metadata("design:type", typeof (_c = typeof riesgo_entity_1.FrecuenciaControl !== "undefined" && riesgo_entity_1.FrecuenciaControl) === "function" ? _c : Object)
+], CreateRiesgoDto.prototype, "frecuencia_control", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ description: 'ID del usuario responsable del seguimiento' }),
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(5),
     __metadata("design:type", Number)
-], CreateRiesgoDto.prototype, "idResponsable", void 0);
-class UpdateRiesgoDto extends (0, mapped_types_1.PartialType)(CreateRiesgoDto) {
-    estado;
-    fechaCierre;
-}
-exports.UpdateRiesgoDto = UpdateRiesgoDto;
+], CreateRiesgoDto.prototype, "probabilidad_residual", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ enum: riesgo_entity_1.EstadoRiesgo }),
-    (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsEnum)(riesgo_entity_1.EstadoRiesgo),
-    __metadata("design:type", typeof (_b = typeof riesgo_entity_1.EstadoRiesgo !== "undefined" && riesgo_entity_1.EstadoRiesgo) === "function" ? _b : Object)
-], UpdateRiesgoDto.prototype, "estado", void 0);
-__decorate([
-    (0, swagger_1.ApiPropertyOptional)({ example: '2026-05-30' }),
-    (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsDateString)(),
-    __metadata("design:type", String)
-], UpdateRiesgoDto.prototype, "fechaCierre", void 0);
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(5),
+    __metadata("design:type", Number)
+], CreateRiesgoDto.prototype, "impacto_residual", void 0);
 
 
 /***/ }),
@@ -16232,199 +16552,144 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a, _b, _c, _d, _e;
+var _a, _b;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.Riesgo = exports.CategoriaRiesgo = exports.EstadoRiesgo = exports.NivelRiesgo = void 0;
-exports.calcularNivelRiesgo = calcularNivelRiesgo;
+exports.Riesgo = exports.NivelRiesgo = exports.FrecuenciaControl = exports.NivelControl = exports.TipoControl = void 0;
 const typeorm_1 = __webpack_require__(/*! typeorm */ "typeorm");
-const usuario_entity_1 = __webpack_require__(/*! src/modules/usuarios/entities/usuario.entity */ "./src/modules/usuarios/entities/usuario.entity.ts");
+var TipoControl;
+(function (TipoControl) {
+    TipoControl["PREVENTIVO"] = "P";
+    TipoControl["DETECTIVO"] = "D";
+    TipoControl["CORRECTIVO"] = "C";
+    TipoControl["DISUASIVO"] = "Di";
+})(TipoControl || (exports.TipoControl = TipoControl = {}));
+var NivelControl;
+(function (NivelControl) {
+    NivelControl["ALTO"] = "A";
+    NivelControl["SATISFACTORIO"] = "S";
+    NivelControl["MEDIO"] = "M";
+})(NivelControl || (exports.NivelControl = NivelControl = {}));
+var FrecuenciaControl;
+(function (FrecuenciaControl) {
+    FrecuenciaControl["DIARIO"] = "D";
+    FrecuenciaControl["SEMANAL"] = "S";
+    FrecuenciaControl["MENSUAL"] = "M";
+    FrecuenciaControl["ANUAL"] = "A";
+    FrecuenciaControl["POR_TRANSACCION"] = "PT";
+    FrecuenciaControl["SEMESTRAL"] = "s";
+})(FrecuenciaControl || (exports.FrecuenciaControl = FrecuenciaControl = {}));
 var NivelRiesgo;
 (function (NivelRiesgo) {
-    NivelRiesgo["BAJO"] = "BAJO";
-    NivelRiesgo["MEDIO"] = "MEDIO";
-    NivelRiesgo["ALTO"] = "ALTO";
-    NivelRiesgo["CRITICO"] = "CRITICO";
+    NivelRiesgo["BAJO"] = "Bajo";
+    NivelRiesgo["MODERADO"] = "Moderado";
+    NivelRiesgo["ALTO"] = "Alto";
+    NivelRiesgo["EXTREMO"] = "Extremo";
 })(NivelRiesgo || (exports.NivelRiesgo = NivelRiesgo = {}));
-var EstadoRiesgo;
-(function (EstadoRiesgo) {
-    EstadoRiesgo["IDENTIFICADO"] = "IDENTIFICADO";
-    EstadoRiesgo["EN_ANALISIS"] = "EN_ANALISIS";
-    EstadoRiesgo["MITIGADO"] = "MITIGADO";
-    EstadoRiesgo["ACEPTADO"] = "ACEPTADO";
-    EstadoRiesgo["CERRADO"] = "CERRADO";
-})(EstadoRiesgo || (exports.EstadoRiesgo = EstadoRiesgo = {}));
-var CategoriaRiesgo;
-(function (CategoriaRiesgo) {
-    CategoriaRiesgo["SEGURIDAD_INFORMACION"] = "SEGURIDAD_INFORMACION";
-    CategoriaRiesgo["OPERACIONAL"] = "OPERACIONAL";
-    CategoriaRiesgo["LEGAL_REGULATORIO"] = "LEGAL_REGULATORIO";
-    CategoriaRiesgo["FINANCIERO"] = "FINANCIERO";
-    CategoriaRiesgo["REPUTACIONAL"] = "REPUTACIONAL";
-    CategoriaRiesgo["TECNOLOGICO"] = "TECNOLOGICO";
-    CategoriaRiesgo["OTRO"] = "OTRO";
-})(CategoriaRiesgo || (exports.CategoriaRiesgo = CategoriaRiesgo = {}));
-function calcularNivelRiesgo(probabilidad, impacto) {
-    const score = probabilidad * impacto;
-    if (score <= 4)
-        return NivelRiesgo.BAJO;
-    if (score <= 9)
-        return NivelRiesgo.MEDIO;
-    if (score <= 16)
-        return NivelRiesgo.ALTO;
-    return NivelRiesgo.CRITICO;
-}
 let Riesgo = class Riesgo {
     id;
-    codigo;
-    titulo;
-    descripcion;
-    categoria;
-    probabilidad;
-    impacto;
-    nivelRiesgo;
-    puntuacion;
-    consecuencias;
-    planAccion;
-    controlesExistentes;
-    estado;
-    fechaIdentificacion;
-    fechaRevision;
-    fechaCierre;
-    idResponsable;
-    responsable;
-    idCreador;
-    creador;
-    createdAt;
-    updatedAt;
-    deletedAt;
-    calcularNivel() {
-        const p = Math.min(5, Math.max(1, this.probabilidad));
-        const i = Math.min(5, Math.max(1, this.impacto));
-        this.puntuacion = p * i;
-        this.nivelRiesgo = calcularNivelRiesgo(p, i);
-    }
+    activo_informacion;
+    aplicativos_sistemas;
+    amenaza_vulnerabilidad;
+    riesgo_consecuencia;
+    probabilidad_inherente;
+    impacto_inherente;
+    riesgo_inherente;
+    nivel_riesgo_inherente;
+    tratamiento_riesgo;
+    controles_implementar;
+    tipo_control;
+    nivel_control;
+    frecuencia_control;
+    probabilidad_residual;
+    impacto_residual;
+    riesgo_residual;
+    nivel_riesgo_residual;
+    created_at;
+    updated_at;
 };
 exports.Riesgo = Riesgo;
 __decorate([
-    (0, typeorm_1.PrimaryGeneratedColumn)({ name: 'id_riesgo' }),
-    __metadata("design:type", Number)
+    (0, typeorm_1.PrimaryGeneratedColumn)('uuid'),
+    __metadata("design:type", String)
 ], Riesgo.prototype, "id", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'varchar', length: 30, name: 'codigo', unique: true }),
+    (0, typeorm_1.Column)({ type: 'varchar', length: 255 }),
     __metadata("design:type", String)
-], Riesgo.prototype, "codigo", void 0);
+], Riesgo.prototype, "activo_informacion", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'varchar', length: 200, name: 'titulo' }),
+    (0, typeorm_1.Column)({ type: 'varchar', length: 255 }),
     __metadata("design:type", String)
-], Riesgo.prototype, "titulo", void 0);
+], Riesgo.prototype, "aplicativos_sistemas", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'text', name: 'descripcion' }),
+    (0, typeorm_1.Column)({ type: 'text' }),
     __metadata("design:type", String)
-], Riesgo.prototype, "descripcion", void 0);
+], Riesgo.prototype, "amenaza_vulnerabilidad", void 0);
 __decorate([
-    (0, typeorm_1.Column)({
-        type: 'enum',
-        enum: CategoriaRiesgo,
-        name: 'categoria',
-        default: CategoriaRiesgo.OTRO,
-    }),
+    (0, typeorm_1.Column)({ type: 'text' }),
     __metadata("design:type", String)
-], Riesgo.prototype, "categoria", void 0);
+], Riesgo.prototype, "riesgo_consecuencia", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'smallint', name: 'probabilidad' }),
+    (0, typeorm_1.Column)({ type: 'int' }),
     __metadata("design:type", Number)
-], Riesgo.prototype, "probabilidad", void 0);
+], Riesgo.prototype, "probabilidad_inherente", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'smallint', name: 'impacto' }),
+    (0, typeorm_1.Column)({ type: 'int' }),
     __metadata("design:type", Number)
-], Riesgo.prototype, "impacto", void 0);
+], Riesgo.prototype, "impacto_inherente", void 0);
 __decorate([
-    (0, typeorm_1.Column)({
-        type: 'enum',
-        enum: NivelRiesgo,
-        name: 'nivel_riesgo',
-    }),
-    __metadata("design:type", String)
-], Riesgo.prototype, "nivelRiesgo", void 0);
-__decorate([
-    (0, typeorm_1.Column)({ type: 'smallint', name: 'puntuacion' }),
+    (0, typeorm_1.Column)({ type: 'int' }),
     __metadata("design:type", Number)
-], Riesgo.prototype, "puntuacion", void 0);
+], Riesgo.prototype, "riesgo_inherente", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'text', name: 'consecuencias' }),
+    (0, typeorm_1.Column)({ type: 'enum', enum: NivelRiesgo }),
     __metadata("design:type", String)
-], Riesgo.prototype, "consecuencias", void 0);
+], Riesgo.prototype, "nivel_riesgo_inherente", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'text', name: 'plan_accion' }),
+    (0, typeorm_1.Column)({ type: 'varchar', length: 100 }),
     __metadata("design:type", String)
-], Riesgo.prototype, "planAccion", void 0);
+], Riesgo.prototype, "tratamiento_riesgo", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'text', name: 'controles_existentes', nullable: true }),
-    __metadata("design:type", Object)
-], Riesgo.prototype, "controlesExistentes", void 0);
-__decorate([
-    (0, typeorm_1.Column)({
-        type: 'enum',
-        enum: EstadoRiesgo,
-        name: 'estado',
-        default: EstadoRiesgo.IDENTIFICADO,
-    }),
+    (0, typeorm_1.Column)({ type: 'text' }),
     __metadata("design:type", String)
-], Riesgo.prototype, "estado", void 0);
+], Riesgo.prototype, "controles_implementar", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'date', name: 'fecha_identificacion' }),
+    (0, typeorm_1.Column)({ type: 'enum', enum: TipoControl }),
     __metadata("design:type", String)
-], Riesgo.prototype, "fechaIdentificacion", void 0);
+], Riesgo.prototype, "tipo_control", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'date', name: 'fecha_revision', nullable: true }),
-    __metadata("design:type", Object)
-], Riesgo.prototype, "fechaRevision", void 0);
+    (0, typeorm_1.Column)({ type: 'enum', enum: NivelControl }),
+    __metadata("design:type", String)
+], Riesgo.prototype, "nivel_control", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'date', name: 'fecha_cierre', nullable: true }),
-    __metadata("design:type", Object)
-], Riesgo.prototype, "fechaCierre", void 0);
+    (0, typeorm_1.Column)({ type: 'enum', enum: FrecuenciaControl }),
+    __metadata("design:type", String)
+], Riesgo.prototype, "frecuencia_control", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ type: 'int', name: 'id_responsable' }),
+    (0, typeorm_1.Column)({ type: 'int' }),
     __metadata("design:type", Number)
-], Riesgo.prototype, "idResponsable", void 0);
+], Riesgo.prototype, "probabilidad_residual", void 0);
 __decorate([
-    (0, typeorm_1.ManyToOne)(() => usuario_entity_1.Usuario, { eager: false }),
-    (0, typeorm_1.JoinColumn)({ name: 'id_responsable' }),
-    __metadata("design:type", typeof (_a = typeof usuario_entity_1.Usuario !== "undefined" && usuario_entity_1.Usuario) === "function" ? _a : Object)
-], Riesgo.prototype, "responsable", void 0);
-__decorate([
-    (0, typeorm_1.Column)({ type: 'int', name: 'id_creador' }),
+    (0, typeorm_1.Column)({ type: 'int' }),
     __metadata("design:type", Number)
-], Riesgo.prototype, "idCreador", void 0);
+], Riesgo.prototype, "impacto_residual", void 0);
 __decorate([
-    (0, typeorm_1.ManyToOne)(() => usuario_entity_1.Usuario, { eager: false }),
-    (0, typeorm_1.JoinColumn)({ name: 'id_creador' }),
-    __metadata("design:type", typeof (_b = typeof usuario_entity_1.Usuario !== "undefined" && usuario_entity_1.Usuario) === "function" ? _b : Object)
-], Riesgo.prototype, "creador", void 0);
+    (0, typeorm_1.Column)({ type: 'int' }),
+    __metadata("design:type", Number)
+], Riesgo.prototype, "riesgo_residual", void 0);
 __decorate([
-    (0, typeorm_1.CreateDateColumn)({ name: 'created_at' }),
-    __metadata("design:type", typeof (_c = typeof Date !== "undefined" && Date) === "function" ? _c : Object)
-], Riesgo.prototype, "createdAt", void 0);
+    (0, typeorm_1.Column)({ type: 'enum', enum: NivelRiesgo }),
+    __metadata("design:type", String)
+], Riesgo.prototype, "nivel_riesgo_residual", void 0);
 __decorate([
-    (0, typeorm_1.UpdateDateColumn)({ name: 'updated_at' }),
-    __metadata("design:type", typeof (_d = typeof Date !== "undefined" && Date) === "function" ? _d : Object)
-], Riesgo.prototype, "updatedAt", void 0);
+    (0, typeorm_1.CreateDateColumn)(),
+    __metadata("design:type", typeof (_a = typeof Date !== "undefined" && Date) === "function" ? _a : Object)
+], Riesgo.prototype, "created_at", void 0);
 __decorate([
-    (0, typeorm_1.DeleteDateColumn)({ name: 'deleted_at', nullable: true }),
-    __metadata("design:type", Object)
-], Riesgo.prototype, "deletedAt", void 0);
-__decorate([
-    (0, typeorm_1.BeforeInsert)(),
-    (0, typeorm_1.BeforeUpdate)(),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
-    __metadata("design:returntype", void 0)
-], Riesgo.prototype, "calcularNivel", null);
+    (0, typeorm_1.UpdateDateColumn)(),
+    __metadata("design:type", typeof (_b = typeof Date !== "undefined" && Date) === "function" ? _b : Object)
+], Riesgo.prototype, "updated_at", void 0);
 exports.Riesgo = Riesgo = __decorate([
-    (0, typeorm_1.Entity)('riesgos'),
-    (0, typeorm_1.Index)(['nivelRiesgo', 'estado']),
-    (0, typeorm_1.Index)(['idResponsable']),
-    (0, typeorm_1.Index)(['fechaIdentificacion'])
+    (0, typeorm_1.Entity)('riesgos_seguridad_informacion')
 ], Riesgo);
 
 
@@ -16449,7 +16714,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b, _c, _d, _e, _f, _g, _h;
+var _a, _b, _c, _d, _e, _f, _g;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.RiesgosController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -16459,7 +16724,8 @@ const permisos_guard_1 = __webpack_require__(/*! ../../app/services/auth/permiso
 const requiere_permisos_decorator_1 = __webpack_require__(/*! ../../shared/decorators/requiere-permisos.decorator */ "./src/shared/decorators/requiere-permisos.decorator.ts");
 const roles_const_1 = __webpack_require__(/*! src/shared/constants/roles.const */ "./src/shared/constants/roles.const.ts");
 const riesgos_service_1 = __webpack_require__(/*! ./riesgos.service */ "./src/modules/riesgos/riesgos.service.ts");
-const riesgo_dto_1 = __webpack_require__(/*! ./riesgo.dto */ "./src/modules/riesgos/riesgo.dto.ts");
+const create_riesgo_dto_1 = __webpack_require__(/*! ./create-riesgo.dto */ "./src/modules/riesgos/create-riesgo.dto.ts");
+const update_riesgo_dto_1 = __webpack_require__(/*! ./update-riesgo.dto */ "./src/modules/riesgos/update-riesgo.dto.ts");
 const riesgo_entity_1 = __webpack_require__(/*! ./riesgo.entity */ "./src/modules/riesgos/riesgo.entity.ts");
 function extractIp(req) {
     const forwarded = req.headers['x-forwarded-for'];
@@ -16473,40 +16739,30 @@ let RiesgosController = class RiesgosController {
         this.riesgosService = riesgosService;
     }
     create(dto, req) {
-        return this.riesgosService.create(dto, {
-            idUsuario: req.user.sub,
-            nombreUsuario: req.user.usuario,
-            ipOrigen: extractIp(req),
-        });
+        const ip = extractIp(req);
+        return this.riesgosService.create(dto);
     }
-    findAll(nivel, estado, idResponsable, fechaDesde, fechaHasta) {
-        return this.riesgosService.findAll({
-            nivel,
-            estado,
-            idResponsable: idResponsable ? +idResponsable : undefined,
-            fechaDesde,
-            fechaHasta,
-        });
+    findAll(nivel, idResponsable, fechaDesde, fechaHasta) {
+        return this.riesgosService.findAll();
     }
-    resumen() {
-        return this.riesgosService.resumenPorNivel();
+    async resumen() {
+        const todos = await this.riesgosService.findAll();
+        const resumen = { Bajo: 0, Moderado: 0, Alto: 0, Extremo: 0 };
+        todos.forEach(r => {
+            if (resumen[r.nivel_riesgo_inherente] !== undefined) {
+                resumen[r.nivel_riesgo_inherente]++;
+            }
+        });
+        return resumen;
     }
     findOne(id) {
         return this.riesgosService.findOne(id);
     }
     update(id, dto, req) {
-        return this.riesgosService.update(id, dto, {
-            idUsuario: req.user.sub,
-            nombreUsuario: req.user.usuario,
-            ipOrigen: extractIp(req),
-        });
+        return this.riesgosService.update(id, dto);
     }
     remove(id, req) {
-        return this.riesgosService.remove(id, {
-            idUsuario: req.user.sub,
-            nombreUsuario: req.user.usuario,
-            ipOrigen: extractIp(req),
-        });
+        return this.riesgosService.remove(id);
     }
 };
 exports.RiesgosController = RiesgosController;
@@ -16517,7 +16773,7 @@ __decorate([
     __param(0, (0, common_1.Body)()),
     __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_b = typeof riesgo_dto_1.CreateRiesgoDto !== "undefined" && riesgo_dto_1.CreateRiesgoDto) === "function" ? _b : Object, Object]),
+    __metadata("design:paramtypes", [typeof (_b = typeof create_riesgo_dto_1.CreateRiesgoDto !== "undefined" && create_riesgo_dto_1.CreateRiesgoDto) === "function" ? _b : Object, Object]),
     __metadata("design:returntype", void 0)
 ], RiesgosController.prototype, "create", null);
 __decorate([
@@ -16525,12 +16781,11 @@ __decorate([
     (0, requiere_permisos_decorator_1.RequierePermisos)(roles_const_1.Permiso.RIESGOS_LEER),
     (0, common_1.Get)(),
     __param(0, (0, common_1.Query)('nivel')),
-    __param(1, (0, common_1.Query)('estado')),
-    __param(2, (0, common_1.Query)('idResponsable')),
-    __param(3, (0, common_1.Query)('fechaDesde')),
-    __param(4, (0, common_1.Query)('fechaHasta')),
+    __param(1, (0, common_1.Query)('idResponsable')),
+    __param(2, (0, common_1.Query)('fechaDesde')),
+    __param(3, (0, common_1.Query)('fechaHasta')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_d = typeof riesgo_entity_1.NivelRiesgo !== "undefined" && riesgo_entity_1.NivelRiesgo) === "function" ? _d : Object, typeof (_e = typeof riesgo_entity_1.EstadoRiesgo !== "undefined" && riesgo_entity_1.EstadoRiesgo) === "function" ? _e : Object, String, String, String]),
+    __metadata("design:paramtypes", [typeof (_d = typeof riesgo_entity_1.NivelRiesgo !== "undefined" && riesgo_entity_1.NivelRiesgo) === "function" ? _d : Object, String, String, String]),
     __metadata("design:returntype", void 0)
 ], RiesgosController.prototype, "findAll", null);
 __decorate([
@@ -16539,36 +16794,36 @@ __decorate([
     (0, common_1.Get)('resumen'),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
-    __metadata("design:returntype", void 0)
+    __metadata("design:returntype", Promise)
 ], RiesgosController.prototype, "resumen", null);
 __decorate([
     (0, swagger_1.ApiOperation)({ summary: 'Obtener detalle de un riesgo' }),
     (0, requiere_permisos_decorator_1.RequierePermisos)(roles_const_1.Permiso.RIESGOS_LEER),
     (0, common_1.Get)(':id'),
-    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(0, (0, common_1.Param)('id')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number]),
+    __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
 ], RiesgosController.prototype, "findOne", null);
 __decorate([
     (0, swagger_1.ApiOperation)({ summary: 'Actualizar riesgo (recalcula nivel automáticamente)' }),
     (0, requiere_permisos_decorator_1.RequierePermisos)(roles_const_1.Permiso.RIESGOS_EDITAR),
     (0, common_1.Patch)(':id'),
-    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
     __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number, typeof (_f = typeof riesgo_dto_1.UpdateRiesgoDto !== "undefined" && riesgo_dto_1.UpdateRiesgoDto) === "function" ? _f : Object, Object]),
+    __metadata("design:paramtypes", [String, typeof (_e = typeof update_riesgo_dto_1.UpdateRiesgoDto !== "undefined" && update_riesgo_dto_1.UpdateRiesgoDto) === "function" ? _e : Object, Object]),
     __metadata("design:returntype", void 0)
 ], RiesgosController.prototype, "update", null);
 __decorate([
     (0, swagger_1.ApiOperation)({ summary: 'Eliminar riesgo (soft delete)' }),
     (0, requiere_permisos_decorator_1.RequierePermisos)(roles_const_1.Permiso.RIESGOS_ELIMINAR),
     (0, common_1.Delete)(':id'),
-    __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
+    __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number, Object]),
+    __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], RiesgosController.prototype, "remove", null);
 exports.RiesgosController = RiesgosController = __decorate([
@@ -16635,143 +16890,104 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var RiesgosService_1;
-var _a, _b, _c;
+var _a;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.RiesgosService = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const typeorm_1 = __webpack_require__(/*! @nestjs/typeorm */ "@nestjs/typeorm");
 const typeorm_2 = __webpack_require__(/*! typeorm */ "typeorm");
 const riesgo_entity_1 = __webpack_require__(/*! ./riesgo.entity */ "./src/modules/riesgos/riesgo.entity.ts");
-const logs_service_1 = __webpack_require__(/*! ../logs/logs.service */ "./src/modules/logs/logs.service.ts");
-let RiesgosService = RiesgosService_1 = class RiesgosService {
-    riesgosRepository;
-    dataSource;
-    logsService;
-    logger = new common_1.Logger(RiesgosService_1.name);
-    constructor(riesgosRepository, dataSource, logsService) {
-        this.riesgosRepository = riesgosRepository;
-        this.dataSource = dataSource;
-        this.logsService = logsService;
+let RiesgosService = class RiesgosService {
+    riesgoRepository;
+    constructor(riesgoRepository) {
+        this.riesgoRepository = riesgoRepository;
     }
-    async generarCodigo() {
-        const year = new Date().getFullYear();
-        const count = await this.riesgosRepository.count();
-        const secuencia = String(count + 1).padStart(3, '0');
-        return `RIESGO-${year}-${secuencia}`;
+    calcularNivelRiesgo(valor) {
+        if (valor >= 1 && valor <= 4)
+            return riesgo_entity_1.NivelRiesgo.BAJO;
+        if (valor >= 5 && valor <= 9)
+            return riesgo_entity_1.NivelRiesgo.MODERADO;
+        if (valor >= 10 && valor <= 16)
+            return riesgo_entity_1.NivelRiesgo.ALTO;
+        if (valor >= 20 && valor <= 25)
+            return riesgo_entity_1.NivelRiesgo.EXTREMO;
+        if (valor > 16 && valor < 20)
+            return riesgo_entity_1.NivelRiesgo.ALTO;
+        throw new common_1.BadRequestException(`Valor de riesgo fuera de rango (1-25): ${valor}`);
     }
-    async findOneOrFail(id) {
-        const riesgo = await this.riesgosRepository.findOne({ where: { id } });
-        if (!riesgo) {
-            throw new common_1.NotFoundException(`Riesgo #${id} no encontrado.`);
+    validarRango(valor, campo) {
+        if (typeof valor !== 'number' || !Number.isInteger(valor) || valor < 1 || valor > 5) {
+            throw new common_1.BadRequestException(`El campo "${campo}" debe ser un entero entre 1 y 5. Recibido: ${valor}`);
         }
-        return riesgo;
     }
-    async create(dto, actor) {
-        if (dto.probabilidad < 1 || dto.probabilidad > 5 || dto.impacto < 1 || dto.impacto > 5) {
-            throw new common_1.BadRequestException('Probabilidad e impacto deben estar entre 1 y 5.');
-        }
-        const codigo = await this.generarCodigo();
-        const riesgo = this.riesgosRepository.create({
-            ...dto,
-            codigo,
-            idCreador: actor.idUsuario,
-            idResponsable: dto.idResponsable,
-        });
-        const saved = await this.riesgosRepository.save(riesgo);
-        await this.logsService.riesgoCreado({
-            idUsuario: actor.idUsuario,
-            nombreUsuario: actor.nombreUsuario,
-            idRiesgo: saved.id,
-            descripcion: saved.titulo,
-            nivelRiesgo: saved.nivelRiesgo,
-            ipOrigen: actor.ipOrigen,
-        });
-        this.logger.log(`Riesgo ${saved.codigo} creado por ${actor.nombreUsuario} [${saved.nivelRiesgo}]`);
-        return saved;
+    aplicarCalculosDeRiesgo(data) {
+        const probInh = data.probabilidad_inherente;
+        const impInh = data.impacto_inherente;
+        const probRes = data.probabilidad_residual;
+        const impRes = data.impacto_residual;
+        this.validarRango(probInh, 'probabilidad_inherente');
+        this.validarRango(impInh, 'impacto_inherente');
+        this.validarRango(probRes, 'probabilidad_residual');
+        this.validarRango(impRes, 'impacto_residual');
+        const riesgoInherente = probInh * impInh;
+        data.riesgo_inherente = riesgoInherente;
+        data.nivel_riesgo_inherente = this.calcularNivelRiesgo(riesgoInherente);
+        const riesgoResidual = probRes * impRes;
+        data.riesgo_residual = riesgoResidual;
+        data.nivel_riesgo_residual = this.calcularNivelRiesgo(riesgoResidual);
+        return data;
     }
-    async findAll(filtros) {
-        const qb = this.riesgosRepository
-            .createQueryBuilder('r')
-            .leftJoinAndSelect('r.responsable', 'responsable')
-            .leftJoinAndSelect('r.creador', 'creador')
-            .orderBy('r.puntuacion', 'DESC');
-        if (filtros?.nivel) {
-            qb.andWhere('r.nivel_riesgo = :nivel', { nivel: filtros.nivel });
-        }
-        if (filtros?.estado) {
-            qb.andWhere('r.estado = :estado', { estado: filtros.estado });
-        }
-        if (filtros?.idResponsable) {
-            qb.andWhere('r.id_responsable = :idResponsable', { idResponsable: filtros.idResponsable });
-        }
-        if (filtros?.fechaDesde) {
-            qb.andWhere('r.fecha_identificacion >= :fechaDesde', { fechaDesde: filtros.fechaDesde });
-        }
-        if (filtros?.fechaHasta) {
-            qb.andWhere('r.fecha_identificacion <= :fechaHasta', { fechaHasta: filtros.fechaHasta });
-        }
-        return qb.getMany();
+    async create(dto) {
+        const dataCalculada = this.aplicarCalculosDeRiesgo({ ...dto });
+        const riesgo = this.riesgoRepository.create(dataCalculada);
+        return this.riesgoRepository.save(riesgo);
+    }
+    async findAll() {
+        return this.riesgoRepository.find({ order: { created_at: 'DESC' } });
     }
     async findOne(id) {
-        const riesgo = await this.riesgosRepository.findOne({
-            where: { id },
-            relations: ['responsable', 'creador'],
-        });
+        const riesgo = await this.riesgoRepository.findOne({ where: { id } });
         if (!riesgo) {
-            throw new common_1.NotFoundException(`Riesgo #${id} no encontrado.`);
+            throw new common_1.NotFoundException(`Riesgo con id ${id} no encontrado`);
         }
         return riesgo;
     }
-    async update(id, dto, actor) {
-        const riesgo = await this.findOneOrFail(id);
-        Object.assign(riesgo, dto);
-        const updated = await this.riesgosRepository.save(riesgo);
-        await this.logsService.riesgoModificado({
-            idRiesgo: riesgo.id,
-            nivelRiesgo: updated.nivelRiesgo,
-            idUsuario: actor.idUsuario,
-            nombreUsuario: actor.nombreUsuario,
-            ipOrigen: actor.ipOrigen ?? '127.0.0.1',
-        });
-        return updated;
+    async update(id, dto) {
+        const existente = await this.findOne(id);
+        const merged = { ...existente, ...dto };
+        const dataCalculada = this.aplicarCalculosDeRiesgo(merged);
+        await this.riesgoRepository.update(id, dataCalculada);
+        return this.findOne(id);
     }
-    async remove(id, actor) {
-        const riesgo = await this.findOneOrFail(id);
-        await this.riesgosRepository.softDelete(id);
-        await this.logsService.riesgoEliminado({
-            idRiesgo: id,
-            idUsuario: actor.idUsuario,
-            nombreUsuario: actor.nombreUsuario,
-            ipOrigen: actor.ipOrigen ?? '127.0.0.1',
-        });
-    }
-    async resumenPorNivel() {
-        const rows = await this.riesgosRepository
-            .createQueryBuilder('r')
-            .select('r.nivel_riesgo', 'nivel')
-            .addSelect('COUNT(*)', 'total')
-            .where('r.deleted_at IS NULL')
-            .groupBy('r.nivel_riesgo')
-            .getRawMany();
-        const resumen = {
-            [riesgo_entity_1.NivelRiesgo.BAJO]: 0,
-            [riesgo_entity_1.NivelRiesgo.MEDIO]: 0,
-            [riesgo_entity_1.NivelRiesgo.ALTO]: 0,
-            [riesgo_entity_1.NivelRiesgo.CRITICO]: 0,
-        };
-        for (const row of rows) {
-            resumen[row.nivel] = parseInt(row.total, 10);
-        }
-        return resumen;
+    async remove(id) {
+        const riesgo = await this.findOne(id);
+        await this.riesgoRepository.remove(riesgo);
     }
 };
 exports.RiesgosService = RiesgosService;
-exports.RiesgosService = RiesgosService = RiesgosService_1 = __decorate([
+exports.RiesgosService = RiesgosService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(riesgo_entity_1.Riesgo)),
-    __metadata("design:paramtypes", [typeof (_a = typeof typeorm_2.Repository !== "undefined" && typeorm_2.Repository) === "function" ? _a : Object, typeof (_b = typeof typeorm_2.DataSource !== "undefined" && typeorm_2.DataSource) === "function" ? _b : Object, typeof (_c = typeof logs_service_1.LogsService !== "undefined" && logs_service_1.LogsService) === "function" ? _c : Object])
+    __metadata("design:paramtypes", [typeof (_a = typeof typeorm_2.Repository !== "undefined" && typeorm_2.Repository) === "function" ? _a : Object])
 ], RiesgosService);
+
+
+/***/ }),
+
+/***/ "./src/modules/riesgos/update-riesgo.dto.ts":
+/*!**************************************************!*\
+  !*** ./src/modules/riesgos/update-riesgo.dto.ts ***!
+  \**************************************************/
+/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.UpdateRiesgoDto = void 0;
+const mapped_types_1 = __webpack_require__(/*! @nestjs/mapped-types */ "@nestjs/mapped-types");
+const create_riesgo_dto_1 = __webpack_require__(/*! ./create-riesgo.dto */ "./src/modules/riesgos/create-riesgo.dto.ts");
+class UpdateRiesgoDto extends (0, mapped_types_1.PartialType)(create_riesgo_dto_1.CreateRiesgoDto) {
+}
+exports.UpdateRiesgoDto = UpdateRiesgoDto;
 
 
 /***/ }),
@@ -16820,20 +17036,30 @@ let UsuariosController = class UsuariosController {
         this.usuariosAuthService = usuariosAuthService;
         this.passwordHistoryService = passwordHistoryService;
     }
+    construirCtx(req) {
+        return {
+            idAdmin: req.user?.id || req.user?.sub || 1,
+            adminAlias: req.user?.usuario || req.user?.nombreUsuario || 'admin_sistema',
+            ipOrigen: req.ip || req.socket?.remoteAddress || '127.0.0.1',
+        };
+    }
     async findAll(res) {
         const usuarios = await this.usuariosService.findAll();
         return (0, utils_1.OkRes)(res, { usuarios });
     }
     async crearUsuario(dto, req, res) {
-        await this.usuariosAuthService.crearUsuario(dto, req.user.rol);
+        const adminRol = req.user?.idRol || req.user?.rol;
+        const auditoria = this.construirCtx(req);
+        await this.usuariosAuthService.crearUsuario(dto, adminRol, auditoria);
         return (0, utils_1.CreatedRes)(res, { message: 'Usuario creado exitosamente. Las credenciales fueron enviadas por correo.' });
     }
     async cambiarPassword(dto, req, res) {
         await this.usuariosService.cambiarPassword(req.user.sub, dto);
         return (0, utils_1.OkRes)(res, { message: 'Contraseña actualizada exitosamente' });
     }
-    async updateUsuario(id, dto, res) {
-        await this.usuariosAuthService.update(id, dto);
+    async updateUsuario(id, dto, req, res) {
+        const auditoria = this.construirCtx(req);
+        await this.usuariosAuthService.update(id, dto, auditoria);
         return (0, utils_1.OkRes)(res, { message: 'El usuario se actualizó exitosamente' });
     }
     async desbloquearCuenta(id, res) {
@@ -16844,8 +17070,9 @@ let UsuariosController = class UsuariosController {
         await this.usuariosService.restaurar(id);
         return (0, utils_1.OkRes)(res, { message: 'Usuario restaurado exitosamente' });
     }
-    async deleteUsuario(id, res) {
-        await this.usuariosAuthService.remove(id);
+    async deleteUsuario(id, req, res) {
+        const auditoria = this.construirCtx(req);
+        await this.usuariosAuthService.remove(id, auditoria);
         return (0, utils_1.OkRes)(res, { message: 'Usuario eliminado' });
     }
     async obtenerHistorialPasswords(id, res) {
@@ -16861,7 +17088,7 @@ let UsuariosController = class UsuariosController {
 exports.UsuariosController = UsuariosController;
 __decorate([
     (0, common_1.Get)(),
-    (0, common_1.UseGuards)(),
+    (0, common_1.UseGuards)((0, auth_roles_guard_1.AuthRolesGuard)(roles_const_1.ROLES_ADMIN_SISTEMA)),
     (0, swagger_1.ApiOperation)({ summary: 'Api para obtener los usuarios (solo admins)' }),
     (0, swagger_1.ApiOkResponse)({ description: 'Respuesta en caso de obtener usuarios', type: find_all_usuarios_dto_1.FindAllUsuariosDto }),
     __param(0, (0, common_1.Res)()),
@@ -16871,7 +17098,7 @@ __decorate([
 ], UsuariosController.prototype, "findAll", null);
 __decorate([
     (0, common_1.Post)(),
-    (0, common_1.UseGuards)(),
+    (0, common_1.UseGuards)((0, auth_roles_guard_1.AuthRolesGuard)(roles_const_1.ROLES_ADMIN_SISTEMA)),
     (0, swagger_1.ApiOperation)({ summary: 'Api para crear un usuario con alias @orbis.com (solo admins)' }),
     (0, swagger_1.ApiCreatedResponse)({ description: 'Usuario creado y credenciales enviadas por correo', type: common_response_dto_1.CommonResponseDto }),
     (0, swagger_1.ApiBadRequestResponse)((0, utils_1.SwaggerBadRequestCommon)()),
@@ -16914,9 +17141,10 @@ __decorate([
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Id del usuario' }),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
     __param(1, (0, common_1.Body)()),
-    __param(2, (0, common_1.Res)()),
+    __param(2, (0, common_1.Req)()),
+    __param(3, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number, typeof (_j = typeof update_usuario_dto_1.UpdateUsuarioDto !== "undefined" && update_usuario_dto_1.UpdateUsuarioDto) === "function" ? _j : Object, typeof (_k = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _k : Object]),
+    __metadata("design:paramtypes", [Number, typeof (_j = typeof update_usuario_dto_1.UpdateUsuarioDto !== "undefined" && update_usuario_dto_1.UpdateUsuarioDto) === "function" ? _j : Object, Object, typeof (_k = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _k : Object]),
     __metadata("design:returntype", Promise)
 ], UsuariosController.prototype, "updateUsuario", null);
 __decorate([
@@ -16953,9 +17181,10 @@ __decorate([
     (0, swagger_1.ApiNotFoundResponse)((0, utils_1.SwaggerNotFoundCommon)()),
     (0, swagger_1.ApiParam)({ name: 'id', description: 'Id del usuario' }),
     __param(0, (0, common_1.Param)('id', common_1.ParseIntPipe)),
-    __param(1, (0, common_1.Res)()),
+    __param(1, (0, common_1.Req)()),
+    __param(2, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Number, typeof (_o = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _o : Object]),
+    __metadata("design:paramtypes", [Number, Object, typeof (_o = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _o : Object]),
     __metadata("design:returntype", Promise)
 ], UsuariosController.prototype, "deleteUsuario", null);
 __decorate([
@@ -17830,7 +18059,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b, _c, _d;
+var _a, _b, _c, _d, _e;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UsuariosAuthService = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -17841,6 +18070,7 @@ const utils_1 = __webpack_require__(/*! src/common/utils */ "./src/common/utils/
 const roles_const_1 = __webpack_require__(/*! src/shared/constants/roles.const */ "./src/shared/constants/roles.const.ts");
 const usuarios_service_1 = __webpack_require__(/*! ./usuarios.service */ "./src/modules/usuarios/services/usuarios.service.ts");
 const email_service_1 = __webpack_require__(/*! src/shared/services/email/email.service */ "./src/shared/services/email/email.service.ts");
+const logs_service_1 = __webpack_require__(/*! src/modules/logs/logs.service */ "./src/modules/logs/logs.service.ts");
 const alias_generator_util_1 = __webpack_require__(/*! src/common/utils/alias-generator.util */ "./src/common/utils/alias-generator.util.ts");
 const date_fns_1 = __webpack_require__(/*! date-fns */ "date-fns");
 const investigador_rubro_entity_1 = __webpack_require__(/*! ../entities/investigador-rubro.entity */ "./src/modules/usuarios/entities/investigador-rubro.entity.ts");
@@ -17849,15 +18079,15 @@ let UsuariosAuthService = class UsuariosAuthService {
     investigadorRubroRepository;
     usuariosService;
     emailService;
-    constructor(usuarioRepository, investigadorRubroRepository, usuariosService, emailService) {
+    logsService;
+    constructor(usuarioRepository, investigadorRubroRepository, usuariosService, emailService, logsService) {
         this.usuarioRepository = usuarioRepository;
         this.investigadorRubroRepository = investigadorRubroRepository;
         this.usuariosService = usuariosService;
         this.emailService = emailService;
+        this.logsService = logsService;
     }
     sanitize(u) {
-        if (!u)
-            return u;
         const { contrasenia, ...rest } = u;
         return rest;
     }
@@ -17867,8 +18097,7 @@ let UsuariosAuthService = class UsuariosAuthService {
         usuario.usuario = data.usuario;
         usuario.contrasenia = await (0, utils_1.hashPassword)(data.contrasenia);
         usuario.idRol = data.idRol;
-        const usuarioSaved = await this.usuarioRepository.save(usuario);
-        return usuarioSaved;
+        return this.usuarioRepository.save(usuario);
     }
     async createTemporal(data, manager) {
         const repo = manager ? manager.getRepository(usuario_entity_1.Usuario) : this.usuarioRepository;
@@ -17878,37 +18107,9 @@ let UsuariosAuthService = class UsuariosAuthService {
         usuario.contrasenia = await (0, utils_1.hashPassword)(data.contrasenia);
         usuario.idRol = roles_const_1.RolesEnum.TEMPORAL;
         usuario.expiracion = data.expiracion;
-        const usuarioSaved = await repo.save(usuario);
-        return usuarioSaved;
+        return repo.save(usuario);
     }
-    async update(id, data) {
-        const entity = await this.usuariosService.findOne(id, { throwException: true });
-        if (data.usuario && data.usuario !== entity.usuario) {
-            const repeated = await this.usuariosService.findByUsuario(data.usuario, { throwException: false });
-            if (repeated && repeated.id !== id) {
-                throw new common_1.ConflictException({ message: 'El nombre de usuario ya está en uso.' });
-            }
-            entity.usuario = data.usuario;
-        }
-        if (data.correo && data.correo !== entity.correo) {
-            const repeatedEmail = await this.usuariosService.findOneByCorreo(data.correo, { throwException: false });
-            if (repeatedEmail && repeatedEmail.id !== id) {
-                throw new common_1.ConflictException({ message: 'El correo ya está en uso.' });
-            }
-            entity.correo = data.correo;
-        }
-        if (data.idRol !== undefined && data.idRol !== entity.idRol) {
-            entity.idRol = data.idRol;
-        }
-        const updated = await this.usuarioRepository.save(entity);
-        return this.sanitize(updated);
-    }
-    async remove(id) {
-        await this.usuariosService.findOne(id, { throwException: true });
-        await this.usuarioRepository.softDelete(id);
-        return true;
-    }
-    async crearUsuario(dto, creadorIdRol) {
+    async crearUsuario(dto, creadorIdRol, auditoria) {
         const alias = await this.generarAliasUnico(dto.nombre, dto.apellidoPaterno);
         const tempPassword = this.generarPasswordTemporal();
         const hash = await (0, utils_1.hashPassword)(tempPassword);
@@ -17949,8 +18150,64 @@ let UsuariosAuthService = class UsuariosAuthService {
         else {
             await this.emailService.enviarPasswordTemporal(dto.correoReal, alias, tempPassword);
         }
+        void this.logsService.usuarioCreado({
+            idAdministrador: auditoria.idAdmin,
+            nombreAdministrador: auditoria.adminAlias,
+            idUsuarioNuevo: guardado.id,
+            nombreUsuarioNuevo: `${dto.nombre} ${apellido}`,
+            rolAsignado: idRol,
+            ipOrigen: auditoria.ipOrigen,
+        });
         const { contrasenia, ...resultado } = guardado;
         return resultado;
+    }
+    async update(id, data, auditoria) {
+        const entity = await this.usuariosService.findOne(id, { throwException: true });
+        const camposModificados = [];
+        if (data.usuario && data.usuario !== entity.usuario) {
+            const repeated = await this.usuariosService.findByUsuario(data.usuario, { throwException: false });
+            if (repeated && repeated.id !== id) {
+                throw new common_1.ConflictException({ message: 'El nombre de usuario ya está en uso.' });
+            }
+            entity.usuario = data.usuario;
+            camposModificados.push('usuario');
+        }
+        if (data.correo && data.correo !== entity.correo) {
+            const repeatedEmail = await this.usuariosService.findOneByCorreo(data.correo, { throwException: false });
+            if (repeatedEmail && repeatedEmail.id !== id) {
+                throw new common_1.ConflictException({ message: 'El correo ya está en uso.' });
+            }
+            entity.correo = data.correo;
+            camposModificados.push('correo');
+        }
+        if (data.idRol !== undefined && data.idRol !== entity.idRol) {
+            entity.idRol = data.idRol;
+            camposModificados.push('idRol');
+        }
+        const updated = await this.usuarioRepository.save(entity);
+        if (camposModificados.length > 0) {
+            void this.logsService.usuarioModificado({
+                idAdministrador: auditoria.idAdmin,
+                nombreAdministrador: auditoria.adminAlias,
+                idUsuarioAfectado: id,
+                nombreUsuarioAfectado: entity.usuario,
+                camposModificados,
+                ipOrigen: auditoria.ipOrigen,
+            });
+        }
+        return this.sanitize(updated);
+    }
+    async remove(id, auditoria) {
+        const entity = await this.usuariosService.findOne(id, { throwException: true });
+        await this.usuarioRepository.softDelete(id);
+        void this.logsService.usuarioEliminado({
+            idAdministrador: auditoria.idAdmin,
+            nombreAdministrador: auditoria.adminAlias,
+            idUsuarioAfectado: id,
+            nombreUsuarioAfectado: entity.usuario,
+            ipOrigen: auditoria.ipOrigen,
+        });
+        return true;
     }
     calcularRolAdmin(permisoUsuarios, permisoEmpresas, permisoFormularioExterno, creadorEsSuperadmin) {
         if (permisoUsuarios && permisoEmpresas) {
@@ -17995,7 +18252,7 @@ exports.UsuariosAuthService = UsuariosAuthService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(usuario_entity_1.Usuario)),
     __param(1, (0, typeorm_1.InjectRepository)(investigador_rubro_entity_1.InvestigadorRubro)),
-    __metadata("design:paramtypes", [typeof (_a = typeof typeorm_2.Repository !== "undefined" && typeorm_2.Repository) === "function" ? _a : Object, typeof (_b = typeof typeorm_2.Repository !== "undefined" && typeorm_2.Repository) === "function" ? _b : Object, typeof (_c = typeof usuarios_service_1.UsuariosService !== "undefined" && usuarios_service_1.UsuariosService) === "function" ? _c : Object, typeof (_d = typeof email_service_1.EmailService !== "undefined" && email_service_1.EmailService) === "function" ? _d : Object])
+    __metadata("design:paramtypes", [typeof (_a = typeof typeorm_2.Repository !== "undefined" && typeorm_2.Repository) === "function" ? _a : Object, typeof (_b = typeof typeorm_2.Repository !== "undefined" && typeorm_2.Repository) === "function" ? _b : Object, typeof (_c = typeof usuarios_service_1.UsuariosService !== "undefined" && usuarios_service_1.UsuariosService) === "function" ? _c : Object, typeof (_d = typeof email_service_1.EmailService !== "undefined" && email_service_1.EmailService) === "function" ? _d : Object, typeof (_e = typeof logs_service_1.LogsService !== "undefined" && logs_service_1.LogsService) === "function" ? _e : Object])
 ], UsuariosAuthService);
 
 
@@ -18481,6 +18738,10 @@ exports.PERMISSION_MATRIX = {
         Permiso.EMPRESAS_LEER,
         Permiso.LOGS_LEER,
         Permiso.DASHBOARD_LEER,
+        Permiso.RIESGOS_LEER,
+        Permiso.RIESGOS_CREAR,
+        Permiso.RIESGOS_EDITAR,
+        Permiso.RIESGOS_ELIMINAR,
     ],
     [Rol.ADMIN_EMPRESAS]: [
         Permiso.EMPRESAS_LEER,
@@ -19137,6 +19398,16 @@ module.exports = require("@nestjs/swagger");
 
 /***/ }),
 
+/***/ "@nestjs/throttler":
+/*!************************************!*\
+  !*** external "@nestjs/throttler" ***!
+  \************************************/
+/***/ ((module) => {
+
+module.exports = require("@nestjs/throttler");
+
+/***/ }),
+
 /***/ "@nestjs/typeorm":
 /*!**********************************!*\
   !*** external "@nestjs/typeorm" ***!
@@ -19177,6 +19448,16 @@ module.exports = require("class-validator");
 
 /***/ }),
 
+/***/ "cookie-parser":
+/*!********************************!*\
+  !*** external "cookie-parser" ***!
+  \********************************/
+/***/ ((module) => {
+
+module.exports = require("cookie-parser");
+
+/***/ }),
+
 /***/ "crypto":
 /*!*************************!*\
   !*** external "crypto" ***!
@@ -19207,6 +19488,16 @@ module.exports = require("express");
 
 /***/ }),
 
+/***/ "helmet":
+/*!*************************!*\
+  !*** external "helmet" ***!
+  \*************************/
+/***/ ((module) => {
+
+module.exports = require("helmet");
+
+/***/ }),
+
 /***/ "joi":
 /*!**********************!*\
   !*** external "joi" ***!
@@ -19214,6 +19505,26 @@ module.exports = require("express");
 /***/ ((module) => {
 
 module.exports = require("joi");
+
+/***/ }),
+
+/***/ "node:https":
+/*!*****************************!*\
+  !*** external "node:https" ***!
+  \*****************************/
+/***/ ((module) => {
+
+module.exports = require("node:https");
+
+/***/ }),
+
+/***/ "node:querystring":
+/*!***********************************!*\
+  !*** external "node:querystring" ***!
+  \***********************************/
+/***/ ((module) => {
+
+module.exports = require("node:querystring");
 
 /***/ }),
 
@@ -19288,11 +19599,37 @@ const app_module_1 = __webpack_require__(/*! ./app.module */ "./src/app.module.t
 const swagger_1 = __webpack_require__(/*! @nestjs/swagger */ "@nestjs/swagger");
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const config_service_1 = __webpack_require__(/*! ./config/config.service */ "./src/config/config.service.ts");
+const helmet_1 = __webpack_require__(/*! helmet */ "helmet");
+const cookieParser = __webpack_require__(/*! cookie-parser */ "cookie-parser");
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule);
     const configService = app.get(config_service_1.MyConfigService);
     app.enableShutdownHooks();
     const isDev = configService.get('NODE_ENV') !== 'production';
+    app.use((0, helmet_1.default)({
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: [
+                    "'self'",
+                    'https://www.google.com',
+                    'https://www.gstatic.com',
+                ],
+                styleSrc: ["'self'", "'unsafe-inline'"],
+                imgSrc: ["'self'", 'data:', 'https:'],
+                connectSrc: ["'self'"],
+                fontSrc: ["'self'", 'https:', 'data:'],
+                objectSrc: ["'none'"],
+                upgradeInsecureRequests: [],
+            },
+        },
+        crossOriginEmbedderPolicy: false,
+        hsts: {
+            maxAge: 31536000,
+            includeSubDomains: true,
+            preload: true,
+        },
+    }));
     const HARDCODED_ORIGINS = ['https://orbis-seguridad.vercel.app'];
     const envOrigins = (configService.get('FRONTEND_URL') ?? '')
         .split(',')
@@ -19314,10 +19651,22 @@ async function bootstrap() {
                 }
             },
         methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+        allowedHeaders: [
+            'Content-Type',
+            'Authorization',
+            'x-captcha-token',
+        ],
         credentials: true,
+        maxAge: 86400,
     });
+    app.use(cookieParser());
     app.useGlobalPipes(new common_1.ValidationPipe({
-        transform: true
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transformOptions: {
+            enableImplicitConversion: true,
+        },
     }));
     if (configService.get('NODE_ENV') !== 'production') {
         const config = new swagger_1.DocumentBuilder()

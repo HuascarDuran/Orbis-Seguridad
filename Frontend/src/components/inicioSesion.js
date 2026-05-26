@@ -8,18 +8,17 @@ import logo from '../assets/logo.png';
 // --- TAMAÑOS RESPONSIVOS CON PROPORCIONES ÁUREAS (MÁS PEQUEÑOS) ---
 const SIZES = {
   LOGO_SIZE: "clamp(120px, 16vw, 180px)",
-  TITLE_SIZE: "clamp(1.4rem, 3vw, 1.8rem)", // Reducido de 4vw a 3vw
-  LABEL_SIZE: "clamp(0.8rem, 1.6vw, 1rem)", // Reducido de 2vw a 1.6vw
-  INPUT_SIZE: "clamp(0.9rem, 1.8vw, 1.1rem)", // Reducido de 2.2vw a 1.8vw
-  BUTTON_SIZE: "clamp(1rem, 2vw, 1.2rem)", // Reducido de 2.5vw a 2vw
-  MESSAGE_SIZE: "clamp(0.8rem, 1.6vw, 1rem)", // Reducido de 2vw a 1.6vw
-  ICON_SIZE: "clamp(16px, 2.4vw, 22px)", // Reducido de 3vw a 2.4vw
-  CLOSE_SIZE: "clamp(1.4rem, 3vw, 1.8rem)", // Reducido de 4vw a 3vw
-  MODAL_WIDTH: "clamp(280px, 70vw, 400px)", // Reducido de 90vw a 70vw y max de 500px a 400px
-  MODAL_PADDING: "clamp(1.2rem, 3vw, 1.8rem)", // Reducido de 4vw a 3vw
+  TITLE_SIZE: "clamp(1.4rem, 3vw, 1.8rem)", 
+  LABEL_SIZE: "clamp(0.8rem, 1.6vw, 1rem)", 
+  INPUT_SIZE: "clamp(0.9rem, 1.8vw, 1.1rem)", 
+  BUTTON_SIZE: "clamp(1rem, 2vw, 1.2rem)", 
+  MESSAGE_SIZE: "clamp(0.8rem, 1.6vw, 1rem)", 
+  ICON_SIZE: "clamp(16px, 2.4vw, 22px)", 
+  CLOSE_SIZE: "clamp(1.4rem, 3vw, 1.8rem)", 
+  MODAL_WIDTH: "clamp(280px, 70vw, 400px)", 
+  MODAL_PADDING: "clamp(1.2rem, 3vw, 1.8rem)", 
 };
 
-// Componente del ícono de ojo (mostrar contraseña)
 const EyeIconShow = ({ color, size = SIZES.ICON_SIZE }) => (
   <svg
     viewBox="0 0 24 24"
@@ -29,7 +28,6 @@ const EyeIconShow = ({ color, size = SIZES.ICON_SIZE }) => (
   </svg>
 );
 
-// Componente del ícono de ojo (ocultar contraseña)
 const EyeIconHide = ({ color, size = SIZES.ICON_SIZE }) => (
   <svg
     viewBox="0 0 24 24"
@@ -51,16 +49,14 @@ const InicioSesion = ({ onLogin, onClose }) => {
   const [isVisible, setIsVisible] = useState(true);
   const [modoRegistro, setModoRegistro] = useState(false);
 
-  // Variantes de animación para inputs
   const inputVariants = {
     focus: {
       scale: 1.01,
-      boxShadow: "0 0 0 2px #F29E38", // Borde naranja de la paleta
+      boxShadow: "0 0 0 2px #F29E38", 
       transition: { duration: 0.2 },
     },
   };
   
-  // Variantes de animación para botones
   const buttonVariants = {
     hover: { 
       backgroundColor: "#0A3A5A", 
@@ -70,14 +66,12 @@ const InicioSesion = ({ onLogin, onClose }) => {
     tap: { scale: 0.98 },
   };
 
-  // Variantes de animación para el fondo
   const backdropVariants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { duration: 0.2 } },
     exit: { opacity: 0, transition: { duration: 0.2 } },
   };
   
-  // Variantes de animación para el modal
   const modalVariants = {
     hidden: { scale: 0.95, opacity: 0 },
     visible: { 
@@ -88,7 +82,6 @@ const InicioSesion = ({ onLogin, onClose }) => {
     exit: { scale: 0.95, opacity: 0, transition: { duration: 0.2 } },
   };
   
-  // Variantes de animación para el icono superior
   const iconVariants = {
     hidden: { y: -20, opacity: 0 },
     visible: { 
@@ -99,7 +92,6 @@ const InicioSesion = ({ onLogin, onClose }) => {
     exit: { y: -20, opacity: 0, transition: { duration: 0.1 } },
   };
 
-  // Función para manejar el envío del formulario
   useEffect(() => {
     setMensaje(null);
     setCaptchaChecked(false);
@@ -107,7 +99,7 @@ const InicioSesion = ({ onLogin, onClose }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setMensaje(null); // Limpia mensajes anteriores
+    setMensaje(null); 
 
     if (!usuario || !contrasenia || (modoRegistro && !correo)) {
       setMensaje("Por favor, rellena todos los campos requeridos");
@@ -130,7 +122,26 @@ const InicioSesion = ({ onLogin, onClose }) => {
         setCorreo("");
         setCaptchaChecked(false);
       } else {
-        const { user, token, message } = await loginService({ usuario, contrasenia });
+        // CORREGIDO: Interceptamos el flujo de Login para generar el token invisible de reCAPTCHA v3
+       // CORREGIDO: Usamos grecaptcha.ready para asegurar que la librería esté cargada
+        let captchaToken = null;
+        try {
+          if (window.grecaptcha) {
+            // Envolvemos el execute en una Promesa para esperar el .ready
+            captchaToken = await new Promise((resolve) => {
+              window.grecaptcha.ready(async () => {
+                const token = await window.grecaptcha.execute('6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI', { action: 'login' });
+                resolve(token);
+              });
+            });
+            console.log("Token puro generado en el Front:", captchaToken); // ← Verifica esto en la consola del navegador
+          }
+        } catch (captchaError) {
+          console.warn("Fallo al obtener token de reCAPTCHA invisible. Continuando con fallback:", captchaError);
+        }
+
+        // Pasamos captchaToken como segundo parámetro a loginService
+        const { user, token, message } = await loginService({ usuario, contrasenia }, captchaToken);
         if (onLogin) {
           onLogin({ user, token });
         }
@@ -153,17 +164,14 @@ const InicioSesion = ({ onLogin, onClose }) => {
     }
   };
 
-  // Función para cerrar el modal
   const handleClose = () => {
     setIsVisible(false);
   };
 
-  // Función que se ejecuta cuando la animación de salida termina
   const onExitComplete = () => {
-    if (onClose) onClose(); // Llama a la función onClose pasada por props
+    if (onClose) onClose(); 
   }
 
-  // Función para obtener el color del mensaje
   const getMessageColor = () => {
     if (!mensaje) return "text-text-muted";
     const normalized = mensaje.toLowerCase();
@@ -195,7 +203,6 @@ const InicioSesion = ({ onLogin, onClose }) => {
               padding: SIZES.MODAL_PADDING,
             }}
           >
-            {/* Botón de cerrar (la X) - completamente sin fondo */}
             <motion.button
               onClick={handleClose}
               whileHover={{ scale: 1.2, color: "#F29E38" }}
@@ -208,7 +215,6 @@ const InicioSesion = ({ onLogin, onClose }) => {
               &times;
             </motion.button>
 
-            {/* Contenedor del logo */}
             <div 
               className="flex justify-center items-center mx-auto"
               style={{
@@ -228,41 +234,37 @@ const InicioSesion = ({ onLogin, onClose }) => {
               />
             </div>
 
-            {/* Título del modal */}
             <h2 
               className="font-bodoni font-bold text-text-main uppercase tracking-wider"
               style={{
                 fontSize: SIZES.TITLE_SIZE,
-                letterSpacing: "clamp(0.05rem, 0.2rem, 0.3rem)", // Reducido proporcionalmente
-                marginBottom: "clamp(1.5rem, 3vw, 2rem)", // Reducido proporcionalmente
+                letterSpacing: "clamp(0.05rem, 0.2rem, 0.3rem)", 
+                marginBottom: "clamp(1.5rem, 3vw, 2rem)", 
               }}
             >
               Inicio de Sesión
             </h2>
 
-            {/* Mensajes de feedback (éxito/error) */}
             {mensaje && (
               <p 
                 className={`font-bold font-bodoni ${getMessageColor()}`}
                 style={{ 
                   fontSize: SIZES.MESSAGE_SIZE,
-                  marginBottom: "clamp(1.2rem, 2.5vw, 1.5rem)", // Reducido proporcionalmente
-                  minHeight: "clamp(20px, 3vw, 25px)", // Reducido proporcionalmente
+                  marginBottom: "clamp(1.2rem, 2.5vw, 1.5rem)", 
+                  minHeight: "clamp(20px, 3vw, 25px)", 
                 }}
               >
                 {mensaje}
               </p>
             )}
 
-            {/* Formulario de inicio de sesión */}
             <form onSubmit={handleSubmit} className="text-left">
-              {/* Campo de Usuario */}
               <label 
                 htmlFor="usuario" 
                 className="block text-left font-bodoni font-medium text-text-main"
                 style={{ 
                   fontSize: SIZES.LABEL_SIZE,
-                  marginBottom: "clamp(0.5rem, 1vw, 0.8rem)", // Reducido proporcionalmente
+                  marginBottom: "clamp(0.5rem, 1vw, 0.8rem)", 
                 }}
               >
                 Usuario
@@ -277,19 +279,18 @@ const InicioSesion = ({ onLogin, onClose }) => {
                 whileFocus="focus"
                 className="w-full bg-surface border border-stroke rounded-xl text-text-main font-miles box-border focus:outline-none focus:border-accent transition-colors duration-200"
                 style={{
-                  padding: "clamp(10px, 2vw, 14px) clamp(12px, 2.5vw, 16px)", // Reducido proporcionalmente
+                  padding: "clamp(10px, 2vw, 14px) clamp(12px, 2.5vw, 16px)", 
                   fontSize: SIZES.INPUT_SIZE,
-                  marginBottom: "clamp(1rem, 2.5vw, 1.5rem)", // Reducido proporcionalmente
+                  marginBottom: "clamp(1rem, 2.5vw, 1.5rem)", 
                 }}
               />
 
-              {/* Campo de Contraseña */}
               <label 
                 htmlFor="contrasenia" 
                 className="block text-left font-bodoni font-medium text-text-main"
                 style={{ 
                   fontSize: SIZES.LABEL_SIZE,
-                  marginBottom: "clamp(0.5rem, 1vw, 0.8rem)", // Reducido proporcionalmente
+                  marginBottom: "clamp(0.5rem, 1vw, 0.8rem)", 
                 }}
               >
                 Contraseña
@@ -313,7 +314,6 @@ const InicioSesion = ({ onLogin, onClose }) => {
                     fontSize: SIZES.INPUT_SIZE,
                   }}
                 />
-                {/* Botón para mostrar/ocultar contraseña - completamente sin fondo */}
                 <motion.button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
@@ -377,7 +377,6 @@ const InicioSesion = ({ onLogin, onClose }) => {
                 </>
               )}
 
-              {/* Botón de Enviar */}
               <motion.button
                 type="submit"
                 disabled={loading || (modoRegistro && !captchaChecked)}
@@ -386,9 +385,9 @@ const InicioSesion = ({ onLogin, onClose }) => {
                 whileTap="tap"
                 className="w-full bg-primary text-surface-elevated border-none rounded-xl font-bodoni font-bold uppercase cursor-pointer transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-80"
                 style={{
-                  padding: "clamp(12px, 2.5vw, 16px)", // Reducido proporcionalmente
+                  padding: "clamp(12px, 2.5vw, 16px)", 
                   fontSize: SIZES.BUTTON_SIZE,
-                  marginTop: "clamp(1.2rem, 3vw, 1.8rem)", // Reducido proporcionalmente
+                  marginTop: "clamp(1.2rem, 3vw, 1.8rem)", 
                 }}
               >
                 {loading ? (modoRegistro ? "Registrando..." : "Accediendo...") : modoRegistro ? "Registrarme" : "ACCEDER"}

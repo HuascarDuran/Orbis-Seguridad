@@ -63,14 +63,18 @@ export const PERMISSION_MATRIX: Record<Rol, ReadonlyArray<Permiso>> = {
     [Rol.SUPERADMIN]: Object.values(Permiso) as Permiso[],
 
     [Rol.ADMIN_RRHH]: [
-        Permiso.USUARIOS_LEER,
-        Permiso.USUARIOS_CREAR,
-        Permiso.USUARIOS_EDITAR,
-        Permiso.USUARIOS_BLOQUEAR,
-        Permiso.EMPRESAS_LEER,
-        Permiso.LOGS_LEER,
-        Permiso.DASHBOARD_LEER,
-    ],
+    Permiso.USUARIOS_LEER,
+    Permiso.USUARIOS_CREAR,
+    Permiso.USUARIOS_EDITAR,
+    Permiso.USUARIOS_BLOQUEAR,
+    Permiso.EMPRESAS_LEER,
+    Permiso.LOGS_LEER,
+    Permiso.DASHBOARD_LEER,
+    Permiso.RIESGOS_LEER,
+    Permiso.RIESGOS_CREAR,
+    Permiso.RIESGOS_EDITAR,
+    Permiso.RIESGOS_ELIMINAR,
+],
 
     [Rol.ADMIN_EMPRESAS]: [
         Permiso.EMPRESAS_LEER,

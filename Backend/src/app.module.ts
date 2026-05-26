@@ -40,6 +40,8 @@ import { DatamartModule } from './modules/datamart/datamart.module';
 import { CommonModule } from './common/common.module';
 import { LogsModule } from './modules/logs/logs.module';
 import { RiesgosModule } from './modules/riesgos/riesgos.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -80,10 +82,21 @@ import { RiesgosModule } from './modules/riesgos/riesgos.module';
 		SolicitudesTemporalesModule,
 		DatamartModule,
 		LogsModule,
-    	RiesgosModule
+    	RiesgosModule,
+		ThrottlerModule.forRoot([
+      {
+        name: 'short',
+        ttl: 60000,    // 1 minuto
+        limit: 50,     // 50 peticiones por minuto máximo
+      },
+    ]),
 	],
 	providers: [
-		AppTask
+		AppTask,
+		{
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
 	],
 	controllers: [AppController]
 })

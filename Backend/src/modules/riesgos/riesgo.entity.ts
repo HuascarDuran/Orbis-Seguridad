@@ -1,212 +1,109 @@
-/**
- * @file riesgo.entity.ts
- * @description Entidad para el Módulo de Análisis de Riesgos (Punto 15).
- *
- * METODOLOGÍA: Matriz de Riesgo estándar ISO 31000 / NIST SP 800-30.
- *   Nivel de Riesgo = Probabilidad × Impacto
- *
- *   Escala 1–5 en ambas dimensiones:
- *   ┌─────────────┬──────────────────────────────────────────┐
- *   │ Puntuación  │ Nivel                                    │
- *   ├─────────────┼──────────────────────────────────────────┤
- *   │ 1 – 4       │ BAJO                                     │
- *   │ 5 – 9       │ MEDIO                                    │
- *   │ 10 – 16     │ ALTO                                     │
- *   │ 17 – 25     │ CRÍTICO                                  │
- *   └─────────────┴──────────────────────────────────────────┘
- */
-
+// src/riesgos/entities/riesgo.entity.ts
 import {
-    BeforeInsert,
-    BeforeUpdate,
-    Column,
-    CreateDateColumn,
-    DeleteDateColumn,
-    Entity,
-    Index,
-    JoinColumn,
-    ManyToOne,
-    PrimaryGeneratedColumn,
-    UpdateDateColumn,
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
 } from 'typeorm';
-import { Usuario } from 'src/modules/usuarios/entities/usuario.entity';
 
-// ─── Enums ────────────────────────────────────────────────────────────────────
+export enum TipoControl {
+  PREVENTIVO = 'P',
+  DETECTIVO = 'D',
+  CORRECTIVO = 'C',
+  DISUASIVO = 'Di',
+}
+
+export enum NivelControl {
+  ALTO = 'A',
+  SATISFACTORIO = 'S',
+  MEDIO = 'M',
+}
+
+export enum FrecuenciaControl {
+  DIARIO = 'D',
+  SEMANAL = 'S',
+  MENSUAL = 'M',
+  ANUAL = 'A',
+  POR_TRANSACCION = 'PT',
+  SEMESTRAL = 's',
+}
 
 export enum NivelRiesgo {
-    BAJO     = 'BAJO',
-    MEDIO    = 'MEDIO',
-    ALTO     = 'ALTO',
-    CRITICO  = 'CRITICO',
+  BAJO = 'Bajo',
+  MODERADO = 'Moderado',
+  ALTO = 'Alto',
+  EXTREMO = 'Extremo',
 }
 
-export enum EstadoRiesgo {
-    IDENTIFICADO = 'IDENTIFICADO',
-    EN_ANALISIS  = 'EN_ANALISIS',
-    MITIGADO     = 'MITIGADO',
-    ACEPTADO     = 'ACEPTADO',
-    CERRADO      = 'CERRADO',
-}
-
-export enum CategoriaRiesgo {
-    SEGURIDAD_INFORMACION = 'SEGURIDAD_INFORMACION',
-    OPERACIONAL           = 'OPERACIONAL',
-    LEGAL_REGULATORIO     = 'LEGAL_REGULATORIO',
-    FINANCIERO            = 'FINANCIERO',
-    REPUTACIONAL          = 'REPUTACIONAL',
-    TECNOLOGICO           = 'TECNOLOGICO',
-    OTRO                  = 'OTRO',
-}
-
-// ─── Helper de cálculo ────────────────────────────────────────────────────────
-
-export function calcularNivelRiesgo(probabilidad: number, impacto: number): NivelRiesgo {
-    const score = probabilidad * impacto;
-    if (score <= 4)  return NivelRiesgo.BAJO;
-    if (score <= 9)  return NivelRiesgo.MEDIO;
-    if (score <= 16) return NivelRiesgo.ALTO;
-    return NivelRiesgo.CRITICO;
-}
-
-// ─── Entidad ──────────────────────────────────────────────────────────────────
-
-@Entity('riesgos')
-@Index(['nivelRiesgo', 'estado'])       // Para dashboard de riesgos activos
-@Index(['idResponsable'])
-@Index(['fechaIdentificacion'])
+@Entity('riesgos_seguridad_informacion')
 export class Riesgo {
-    @PrimaryGeneratedColumn({ name: 'id_riesgo' })
-    id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-    // ── Identificación ──────────────────────────────────────────────────────
+  // 1. Activo de Información
+  @Column({ type: 'varchar', length: 255 })
+  activo_informacion: string;
 
-    /**
-     * Código único legible por humanos: RIESGO-2026-001
-     */
-    @Column({ type: 'varchar', length: 30, name: 'codigo', unique: true })
-    codigo: string;
+  @Column({ type: 'varchar', length: 255 })
+  aplicativos_sistemas: string;
 
-    @Column({ type: 'varchar', length: 200, name: 'titulo' })
-    titulo: string;
+  // 2. Identificación
+  @Column({ type: 'text' })
+  amenaza_vulnerabilidad: string;
 
-    @Column({ type: 'text', name: 'descripcion' })
-    descripcion: string;
+  // 3. Valoración
+  @Column({ type: 'text' })
+  riesgo_consecuencia: string;
 
-    @Column({
-        type: 'enum',
-        enum: CategoriaRiesgo,
-        name: 'categoria',
-        default: CategoriaRiesgo.OTRO,
-    })
-    categoria: CategoriaRiesgo;
+  // 4. Cálculo Inicial
+  @Column({ type: 'int' })
+  probabilidad_inherente: number;
 
-    // ── Evaluación cuantitativa (escala 1–5) ────────────────────────────────
+  @Column({ type: 'int' })
+  impacto_inherente: number;
 
-    /**
-     * Probabilidad de ocurrencia (1 = muy improbable, 5 = casi seguro).
-     */
-    @Column({ type: 'smallint', name: 'probabilidad' })
-    probabilidad: number;
+  // 5. Evaluación del Riesgo Inherente (calculado)
+  @Column({ type: 'int' })
+  riesgo_inherente: number;
 
-    /**
-     * Impacto si el riesgo se materializa (1 = insignificante, 5 = catastrófico).
-     */
-    @Column({ type: 'smallint', name: 'impacto' })
-    impacto: number;
+  @Column({ type: 'enum', enum: NivelRiesgo })
+  nivel_riesgo_inherente: NivelRiesgo;
 
-    /**
-     * Nivel calculado automáticamente en @BeforeInsert/@BeforeUpdate.
-     * NUNCA se recibe desde el cliente; es responsabilidad del servidor.
-     */
-    @Column({
-        type: 'enum',
-        enum: NivelRiesgo,
-        name: 'nivel_riesgo',
-    })
-    nivelRiesgo: NivelRiesgo;
+  // 6. Medición
+  @Column({ type: 'varchar', length: 100 })
+  tratamiento_riesgo: string;
 
-    /**
-     * Puntuación numérica = probabilidad × impacto. Para ordenamiento.
-     */
-    @Column({ type: 'smallint', name: 'puntuacion' })
-    puntuacion: number;
+  // 7. Mitigación
+  @Column({ type: 'text' })
+  controles_implementar: string;
 
-    // ── Análisis cualitativo ─────────────────────────────────────────────────
+  // 8. Eficiencia del Control
+  @Column({ type: 'enum', enum: TipoControl })
+  tipo_control: TipoControl;
 
-    @Column({ type: 'text', name: 'consecuencias' })
-    consecuencias: string;
+  @Column({ type: 'enum', enum: NivelControl })
+  nivel_control: NivelControl;
 
-    @Column({ type: 'text', name: 'plan_accion' })
-    planAccion: string;
+  @Column({ type: 'enum', enum: FrecuenciaControl })
+  frecuencia_control: FrecuenciaControl;
 
-    /**
-     * Controles existentes antes de aplicar el plan.
-     */
-    @Column({ type: 'text', name: 'controles_existentes', nullable: true })
-    controlesExistentes: string | null;
+  // 9. Riesgo Residual
+  @Column({ type: 'int' })
+  probabilidad_residual: number;
 
-    // ── Estado y responsabilidad ─────────────────────────────────────────────
+  @Column({ type: 'int' })
+  impacto_residual: number;
 
-    @Column({
-        type: 'enum',
-        enum: EstadoRiesgo,
-        name: 'estado',
-        default: EstadoRiesgo.IDENTIFICADO,
-    })
-    estado: EstadoRiesgo;
+  @Column({ type: 'int' })
+  riesgo_residual: number;
 
-    @Column({ type: 'date', name: 'fecha_identificacion' })
-    fechaIdentificacion: string;
+  @Column({ type: 'enum', enum: NivelRiesgo })
+  nivel_riesgo_residual: NivelRiesgo;
 
-    @Column({ type: 'date', name: 'fecha_revision', nullable: true })
-    fechaRevision: string | null;
+  @CreateDateColumn()
+  created_at: Date;
 
-    @Column({ type: 'date', name: 'fecha_cierre', nullable: true })
-    fechaCierre: string | null;
-
-    /**
-     * ID del usuario responsable del seguimiento del riesgo.
-     */
-    @Column({ type: 'int', name: 'id_responsable' })
-    idResponsable: number;
-
-    @ManyToOne(() => Usuario, { eager: false })
-    @JoinColumn({ name: 'id_responsable' })
-    responsable: Usuario;
-
-    // ── Trazabilidad ─────────────────────────────────────────────────────────
-
-    /**
-     * ID del usuario que registró el riesgo originalmente.
-     */
-    @Column({ type: 'int', name: 'id_creador' })
-    idCreador: number;
-
-    @ManyToOne(() => Usuario, { eager: false })
-    @JoinColumn({ name: 'id_creador' })
-    creador: Usuario;
-
-    @CreateDateColumn({ name: 'created_at' })
-    createdAt: Date;
-
-    @UpdateDateColumn({ name: 'updated_at' })
-    updatedAt: Date;
-
-    @DeleteDateColumn({ name: 'deleted_at', nullable: true })
-    deletedAt: Date | null;
-
-    // ── Hooks de dominio ─────────────────────────────────────────────────────
-
-    /**
-     * Calcula nivelRiesgo y puntuacion automáticamente.
-     * El servidor es el único que determina el nivel; el cliente nunca lo envía.
-     */
-    @BeforeInsert()
-    @BeforeUpdate()
-    calcularNivel(): void {
-        const p = Math.min(5, Math.max(1, this.probabilidad));
-        const i = Math.min(5, Math.max(1, this.impacto));
-        this.puntuacion  = p * i;
-        this.nivelRiesgo = calcularNivelRiesgo(p, i);
-    }
+  @UpdateDateColumn()
+  updated_at: Date;
 }

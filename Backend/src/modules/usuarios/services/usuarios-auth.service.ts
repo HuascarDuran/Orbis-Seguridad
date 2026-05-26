@@ -1,3 +1,19 @@
+/**
+ * @file usuarios-auth.service.ts
+ *
+ * CAMBIOS RESPECTO A LA VERSIÓN ANTERIOR:
+ *   - LogsService inyectado en el constructor.
+ *   - Los métodos de mutación (crearUsuario, update, remove) reciben
+ *     un objeto AuditoriaCtx con los datos del administrador que ejecuta
+ *     la acción y la IP de origen, extraídos en el controlador.
+ *   - Las llamadas a LogsService son fire-and-forget: se invocan con
+ *     `void this.logsService.X()` sin await, para que un fallo de
+ *     auditoría nunca interrumpa la operación de negocio principal.
+ *   - El método interno `create()` (usado solo por AuthService en el
+ *     registro público) NO lleva auditoría de aplicación porque es un
+ *     flujo de auto-registro, no una acción administrativa.
+ */
+
 import {
     BadRequestException,
     ForbiddenException,
@@ -16,9 +32,25 @@ import { CreateUsuarioTemporalDto } from '../dto/create-usuario-temporal.dto';
 import { RolesEnum } from 'src/shared/constants/roles.const';
 import { UsuariosService } from './usuarios.service';
 import { EmailService } from 'src/shared/services/email/email.service';
+import { LogsService } from 'src/modules/logs/logs.service';
 import { buildBaseAlias } from 'src/common/utils/alias-generator.util';
 import { addDays } from 'date-fns';
 import { InvestigadorRubro } from '../entities/investigador-rubro.entity';
+
+// ─── Contexto de auditoría ────────────────────────────────────────────────────
+// Se construye en el controlador, donde vive el objeto Request.
+// Mantener esta interfaz aquí facilita el tipado sin acoplar el service a NestJS Request.
+
+export interface AuditoriaCtx {
+    /** ID del usuario administrador que ejecuta la acción */
+    idAdmin:     number;
+    /** Alias del administrador (log.nombreUsuario en el panel) */
+    adminAlias:  string;
+    /** IP del cliente extraída del Request en el controlador */
+    ipOrigen:    string;
+}
+
+// ─── Servicio ─────────────────────────────────────────────────────────────────
 
 @Injectable()
 export class UsuariosAuthService {
@@ -29,92 +61,75 @@ export class UsuariosAuthService {
         private readonly investigadorRubroRepository: Repository<InvestigadorRubro>,
         private readonly usuariosService: UsuariosService,
         private readonly emailService: EmailService,
+        private readonly logsService: LogsService,   // ← INYECTADO
     ) { }
 
-    private sanitize(u: Usuario) {
-        if (!u) return u as any;
-        const { contrasenia, ...rest } = u as any;
-        return rest;
+    // ─── Utilidad interna: elimina contrasenia del objeto devuelto ─────────────
+
+    private sanitize(u: Usuario): Omit<Usuario, 'contrasenia'> {
+        const { contrasenia, ...rest } = u as Usuario & { contrasenia: string };
+        return rest as Omit<Usuario, 'contrasenia'>;
     }
 
-    async create(data: CreateUsuarioDto) {
+    // ─── Registro público (AuthService) — sin auditoría administrativa ─────────
+
+    async create(data: CreateUsuarioDto): Promise<Usuario> {
         const usuario = new Usuario();
-        usuario.correo = data.correo;
-        usuario.usuario = data.usuario;
+        usuario.correo      = data.correo;
+        usuario.usuario     = data.usuario;
         usuario.contrasenia = await hashPassword(data.contrasenia);
-        usuario.idRol = data.idRol;
-        const usuarioSaved = await this.usuarioRepository.save(usuario);
-        return usuarioSaved;
+        usuario.idRol       = data.idRol;
+        return this.usuarioRepository.save(usuario);
     }
 
-    async createTemporal(data: CreateUsuarioTemporalDto, manager?: EntityManager) {
-        const repo = manager ? manager.getRepository(Usuario) : this.usuarioRepository;
-        const usuario = new Usuario();
-        usuario.usuario = data.usuario;
-        usuario.correo = data.correo;
+    // ─── Creación de usuario temporal (transaccional) — sin auditoría admin ───
+
+    async createTemporal(data: CreateUsuarioTemporalDto, manager?: EntityManager): Promise<Usuario> {
+        const repo      = manager ? manager.getRepository(Usuario) : this.usuarioRepository;
+        const usuario   = new Usuario();
+        usuario.usuario     = data.usuario;
+        usuario.correo      = data.correo;
         usuario.contrasenia = await hashPassword(data.contrasenia);
-        usuario.idRol = RolesEnum.TEMPORAL;
-        usuario.expiracion = data.expiracion;
-        const usuarioSaved = await repo.save(usuario);
-        return usuarioSaved;
+        usuario.idRol       = RolesEnum.TEMPORAL;
+        usuario.expiracion  = data.expiracion;
+        return repo.save(usuario);
     }
 
-    async update(id: number, data: UpdateUsuarioDto) {
-        const entity = await this.usuariosService.findOne(id, { throwException: true });
+    // ─── CU-02 a CU-05: Creación de usuario por administrador ─────────────────
 
-        if (data.usuario && data.usuario !== entity!.usuario) {
-            const repeated = await this.usuariosService.findByUsuario(data.usuario, { throwException: false });
-            if (repeated && repeated.id !== id) {
-                throw new ConflictException({ message: 'El nombre de usuario ya está en uso.' });
-            }
-            entity!.usuario = data.usuario;
-        }
-
-        if (data.correo && data.correo !== entity!.correo) {
-            const repeatedEmail = await this.usuariosService.findOneByCorreo(data.correo, { throwException: false });
-            if (repeatedEmail && repeatedEmail.id !== id) {
-                throw new ConflictException({ message: 'El correo ya está en uso.' });
-            }
-            entity!.correo = data.correo;
-        }
-
-        if (data.idRol !== undefined && data.idRol !== entity!.idRol) {
-            entity!.idRol = data.idRol;
-        }
-
-        const updated = await this.usuarioRepository.save(entity!);
-        return this.sanitize(updated);
-    }
-
-    async remove(id: number) {
-        await this.usuariosService.findOne(id, { throwException: true });
-        await this.usuarioRepository.softDelete(id);
-        return true;
-    }
-
-    // ─── CU-02/03/04/05: Flujo admin de creación con permisos y rubros ───────────
-
-    async crearUsuario(dto: CreateUsuarioNuevoDto, creadorIdRol: number): Promise<Usuario> {
-        const alias = await this.generarAliasUnico(dto.nombre, dto.apellidoPaterno);
+    /**
+     * Crea un usuario nuevo con alias autogenerado y contraseña temporal.
+     * Registra el evento en el log de aplicación (fire-and-forget).
+     *
+     * @param dto          - Datos del formulario de creación
+     * @param creadorIdRol - Rol del administrador que crea el usuario
+     * @param auditoria    - Contexto del administrador + IP (lo provee el controlador)
+     */
+    async crearUsuario(
+        dto:          CreateUsuarioNuevoDto,
+        creadorIdRol: number,
+        auditoria:    AuditoriaCtx,
+    ): Promise<Omit<Usuario, 'contrasenia'>> {
+        const alias       = await this.generarAliasUnico(dto.nombre, dto.apellidoPaterno);
         const tempPassword = this.generarPasswordTemporal();
-        const hash = await hashPassword(tempPassword);
+        const hash        = await hashPassword(tempPassword);
 
-        // CU-03/04: Calcular id_rol final según tipoRol y permisos
+        // CU-03/04: Calcular rol según permisos declarados
         let idRol: number;
         if (dto.tipoRol === 'admin') {
             idRol = this.calcularRolAdmin(
-                dto.permisos?.panelUsuarios ?? false,
-                dto.permisos?.editarEmpresas ?? false,
+                dto.permisos?.panelUsuarios    ?? false,
+                dto.permisos?.editarEmpresas   ?? false,
                 dto.permisos?.formularioExterno ?? false,
                 creadorIdRol === 1,
             );
         } else {
-            // CU-05: investigador senior si rubros vacíos, junior si tiene rubros específicos
+            // CU-05: senior si sin rubros específicos, junior si los tiene
             const esJunior = dto.rubrosAsignados && dto.rubrosAsignados.length > 0;
             idRol = esJunior ? 5 : 4;
         }
 
-        // CU-01: Guardar apellido completo (paterno + materno)
+        // CU-01: Apellido completo
         const apellido = dto.apellidoMaterno
             ? `${dto.apellidoPaterno} ${dto.apellidoMaterno}`
             : dto.apellidoPaterno;
@@ -134,7 +149,7 @@ export class UsuariosAuthService {
 
         const guardado = await this.usuarioRepository.save(nuevoUsuario);
 
-        // CU-05: Si es investigador junior, guardar asignaciones de rubros
+        // CU-05: Rubros para investigador junior
         if (idRol === 5 && dto.rubrosAsignados && dto.rubrosAsignados.length > 0) {
             const asignaciones = dto.rubrosAsignados.map((idRubro) => ({
                 idUsuario: guardado.id,
@@ -143,7 +158,7 @@ export class UsuariosAuthService {
             await this.investigadorRubroRepository.save(asignaciones);
         }
 
-        // CU-04/06: Enviar email con o sin acceso al formulario externo
+        // CU-04/06: Email de bienvenida
         if (dto.permisos?.formularioExterno) {
             await this.emailService.enviarAccesoFormularioExterno(
                 dto.correoReal,
@@ -155,15 +170,115 @@ export class UsuariosAuthService {
             await this.emailService.enviarPasswordTemporal(dto.correoReal, alias, tempPassword);
         }
 
-        const { contrasenia, ...resultado } = guardado as any;
+        // ── Auditoría: fire-and-forget ────────────────────────────────────────
+        // void garantiza que TypeScript no infiera una Promise no manejada.
+        // El error ya se captura internamente en LogsService.registrar().
+        void this.logsService.usuarioCreado({
+            idAdministrador:     auditoria.idAdmin,
+            nombreAdministrador: auditoria.adminAlias,
+            idUsuarioNuevo:      guardado.id,
+            nombreUsuarioNuevo:  `${dto.nombre} ${apellido}` ,
+            rolAsignado:         idRol,
+            ipOrigen:            auditoria.ipOrigen,
+        });
+
+        const { contrasenia, ...resultado } = guardado as Usuario & { contrasenia: string };
         return resultado;
     }
 
+    // ─── Actualización de usuario ──────────────────────────────────────────────
+
+    /**
+     * Actualiza los campos de un usuario existente.
+     * Registra los campos modificados en el log de aplicación (fire-and-forget).
+     *
+     * @param id        - ID del usuario a modificar
+     * @param data      - Campos a actualizar
+     * @param auditoria - Contexto del administrador + IP
+     */
+    async update(
+        id:        number,
+        data:      UpdateUsuarioDto,
+        auditoria: AuditoriaCtx,
+    ): Promise<Omit<Usuario, 'contrasenia'>> {
+        const entity = await this.usuariosService.findOne(id, { throwException: true });
+
+        // Rastrear qué campos cambian para el log
+        const camposModificados: string[] = [];
+
+        if (data.usuario && data.usuario !== entity!.usuario) {
+            const repeated = await this.usuariosService.findByUsuario(data.usuario, { throwException: false });
+            if (repeated && repeated.id !== id) {
+                throw new ConflictException({ message: 'El nombre de usuario ya está en uso.' });
+            }
+            entity!.usuario = data.usuario;
+            camposModificados.push('usuario');
+        }
+
+        if (data.correo && data.correo !== entity!.correo) {
+            const repeatedEmail = await this.usuariosService.findOneByCorreo(data.correo, { throwException: false });
+            if (repeatedEmail && repeatedEmail.id !== id) {
+                throw new ConflictException({ message: 'El correo ya está en uso.' });
+            }
+            entity!.correo = data.correo;
+            camposModificados.push('correo');
+        }
+
+        if (data.idRol !== undefined && data.idRol !== entity!.idRol) {
+            entity!.idRol = data.idRol;
+            camposModificados.push('idRol');
+        }
+
+        const updated = await this.usuarioRepository.save(entity!);
+
+        // ── Auditoría: fire-and-forget ────────────────────────────────────────
+        // Solo registramos si hubo cambios reales; evitamos logs vacíos.
+        if (camposModificados.length > 0) {
+            void this.logsService.usuarioModificado({
+                idAdministrador:     auditoria.idAdmin,
+                nombreAdministrador: auditoria.adminAlias,
+                idUsuarioAfectado:   id,
+                nombreUsuarioAfectado: entity!.usuario,
+                camposModificados,
+                ipOrigen:            auditoria.ipOrigen,
+            });
+        }
+
+        return this.sanitize(updated);
+    }
+
+    // ─── Eliminación de usuario ────────────────────────────────────────────────
+
+    /**
+     * Realiza un soft-delete del usuario.
+     * Registra el evento en el log de aplicación (fire-and-forget).
+     *
+     * @param id        - ID del usuario a eliminar
+     * @param auditoria - Contexto del administrador + IP
+     */
+    async remove(id: number, auditoria: AuditoriaCtx): Promise<true> {
+        const entity = await this.usuariosService.findOne(id, { throwException: true });
+        await this.usuarioRepository.softDelete(id);
+
+        // ── Auditoría: fire-and-forget ────────────────────────────────────────
+        void this.logsService.usuarioEliminado({
+            idAdministrador:       auditoria.idAdmin,
+            nombreAdministrador:   auditoria.adminAlias,
+            idUsuarioAfectado:     id,
+            nombreUsuarioAfectado: entity!.usuario,
+            ipOrigen:              auditoria.ipOrigen,
+        });
+
+        return true;
+    }
+
+    // ─── Helpers privados ──────────────────────────────────────────────────────
+
     private calcularRolAdmin(
-        permisoUsuarios: boolean,
-        permisoEmpresas: boolean,
+        permisoUsuarios:          boolean,
+        permisoEmpresas:          boolean,
         permisoFormularioExterno: boolean,
-        creadorEsSuperadmin: boolean,
+        creadorEsSuperadmin:      boolean,
     ): number {
         if (permisoUsuarios && permisoEmpresas) {
             if (!creadorEsSuperadmin) {
@@ -173,8 +288,8 @@ export class UsuariosAuthService {
             }
             return 1; // SUPERADMIN
         }
-        if (permisoUsuarios) return 2;        // ADMIN_RRHH
-        if (permisoEmpresas) return 3;        // ADMIN_EMPRESAS
+        if (permisoUsuarios)        return 2; // ADMIN_RRHH
+        if (permisoEmpresas)        return 3; // ADMIN_EMPRESAS
         if (permisoFormularioExterno) return 3; // ADMIN_EMPRESAS — solo formulario externo
 
         throw new BadRequestException(
@@ -184,7 +299,7 @@ export class UsuariosAuthService {
 
     private async generarAliasUnico(nombre: string, apellidoPaterno: string): Promise<string> {
         const base = buildBaseAlias(nombre, apellidoPaterno);
-        let alias = base;
+        let alias    = base;
         let contador = 2;
         while (await this.usuarioRepository.existsBy({ usuario: alias })) {
             alias = `${base}${contador}`;

@@ -18,7 +18,7 @@ export const AuthRolesGuard = (roles: number[]): Type<CanActivate> => {
 
             // --- CORRECCIÓN AQUÍ ---
             // Usamos .includes para verificar que el rol esté en la lista permitida
-            const isAllowed = roles.includes(Number(user.rol));
+            const isAllowed = roles.includes(Number(user.idRol || user.rol));
             // -----------------------
 
             if (!isAllowed) {

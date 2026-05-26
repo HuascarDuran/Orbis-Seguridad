@@ -13,12 +13,11 @@ import {
     UseGuards,
 } from '@nestjs/common';
 import { AuthRolesGuard } from 'src/app/services/auth/guards/auth-roles.guard';
-// Añadimos ROLES_ADMIN_SISTEMA a las importaciones
 import { Rol, ROLES_ADMIN_SISTEMA } from 'src/shared/constants/roles.const';
 import { Response } from 'express';
 import { CreatedRes, OkRes, SwaggerBadRequestCommon, SwaggerConflictCommon, SwaggerNotFoundCommon } from 'src/common/utils';
 import { UsuariosService, CambiarPasswordDto } from '../services/usuarios.service';
-import { UsuariosAuthService } from '../services/usuarios-auth.service';
+import { UsuariosAuthService, AuditoriaCtx } from '../services/usuarios-auth.service';
 import { PasswordHistoryService } from '../services/password-history.service';
 import { UpdateUsuarioDto } from '../dto/update-usuario.dto';
 import { CreateUsuarioNuevoDto } from '../dto/create-usuario-nuevo.dto';
@@ -34,9 +33,17 @@ export class UsuariosController {
         private readonly passwordHistoryService: PasswordHistoryService,
     ) { }
 
+    // Función helper privada para construir el contexto de auditoría de forma centralizada
+    private construirCtx(req: any): AuditoriaCtx {
+        return {
+            idAdmin:    req.user?.id || req.user?.sub || 1,
+            adminAlias: req.user?.usuario || req.user?.nombreUsuario || 'admin_sistema',
+            ipOrigen:   req.ip || req.socket?.remoteAddress || '127.0.0.1',
+        };
+    }
+
     @Get()
-    // Usamos ROLES_ADMIN_SISTEMA para que OSI y RRHH puedan ver usuarios
-    @UseGuards()
+    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
     @ApiOperation({ summary: 'Api para obtener los usuarios (solo admins)' })
     @ApiOkResponse({ description: 'Respuesta en caso de obtener usuarios', type: FindAllUsuariosDto })
     async findAll(@Res() res: Response) {
@@ -45,17 +52,19 @@ export class UsuariosController {
     }
 
     @Post()
-    @UseGuards()
+    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
     @ApiOperation({ summary: 'Api para crear un usuario con alias @orbis.com (solo admins)' })
     @ApiCreatedResponse({ description: 'Usuario creado y credenciales enviadas por correo', type: CommonResponseDto })
     @ApiBadRequestResponse(SwaggerBadRequestCommon())
     async crearUsuario(@Body() dto: CreateUsuarioNuevoDto, @Req() req: any, @Res() res: Response) {
-        await this.usuariosAuthService.crearUsuario(dto, req.user.rol);
+        const adminRol = req.user?.idRol || req.user?.rol;
+        const auditoria = this.construirCtx(req);
+        
+        await this.usuariosAuthService.crearUsuario(dto, adminRol, auditoria);
         return CreatedRes(res, { message: 'Usuario creado exitosamente. Las credenciales fueron enviadas por correo.' });
     }
 
     @Patch('cambiar-password')
-    // Abrimos el endpoint a todos los roles para que cada quien gestione su clave
     @UseGuards(AuthRolesGuard([
         Rol.SUPERADMIN, 
         Rol.ADMIN_RRHH, 
@@ -84,9 +93,11 @@ export class UsuariosController {
     async updateUsuario(
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdateUsuarioDto,
+        @Req() req: any,
         @Res() res: Response,
     ) {
-        await this.usuariosAuthService.update(id, dto);
+        const auditoria = this.construirCtx(req);
+        await this.usuariosAuthService.update(id, dto, auditoria);
         return OkRes(res, { message: 'El usuario se actualizó exitosamente' });
     }
 
@@ -105,7 +116,6 @@ export class UsuariosController {
     }
 
     @Patch(':id/restaurar')
-    // Este lo dejamos solo para SUPERADMIN (OSI) como capa extra de seguridad
     @UseGuards(AuthRolesGuard([Rol.SUPERADMIN]))
     @ApiOperation({ summary: 'Restaurar usuario desactivado (solo SUPERADMIN)' })
     @ApiOkResponse({ description: 'Usuario restaurado exitosamente', type: CommonResponseDto })
@@ -127,9 +137,11 @@ export class UsuariosController {
     @ApiParam({ name: 'id', description: 'Id del usuario' })
     async deleteUsuario(
         @Param('id', ParseIntPipe) id: number,
+        @Req() req: any,
         @Res() res: Response,
     ) {
-        await this.usuariosAuthService.remove(id);
+        const auditoria = this.construirCtx(req);
+        await this.usuariosAuthService.remove(id, auditoria);
         return OkRes(res, { message: 'Usuario eliminado' });
     }
 

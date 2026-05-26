@@ -2,8 +2,6 @@ import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
-const ROLES_CON_PANEL = new Set([1, 2]);
-
 const Navbar = ({ loggedInUser, isMobileMenuOpen, toggleMobileMenu }) => {
   const location = useLocation();
 
@@ -11,17 +9,34 @@ const Navbar = ({ loggedInUser, isMobileMenuOpen, toggleMobileMenu }) => {
     { label: "NOSOTROS", path: "/historia" },
     { label: "EQUIPO", path: "/equipo" },
     { label: "INICIO", path: "/" },
-    // { label: "REVISTA", path: "/revistaPage" },  // Commented out temporarily
-
-     // Nueva entrada agregada
     { label: "EMPRESAS", path: "/empresas" },
     { label: "CONTACTO", path: "/contacto" },
   ];
 
   let finalLinks = [...baseLinks];
-  if (loggedInUser && ROLES_CON_PANEL.has(loggedInUser.idRol)) {
-    finalLinks.push({ label: "ADMIN USUARIOS", path: "/panel-usuarios" });
-    //finalLinks.push({ label: "DASHBOARDS", path: "/dashboards" });
+  
+  if (loggedInUser) {
+    const idRol = loggedInUser.idRol;
+    
+    // Panel de usuarios para SUPERADMIN y ADMIN_RRHH
+    if ([1, 2].includes(idRol)) {
+      finalLinks.push({ label: "ADMIN USUARIOS", path: "/panel-usuarios" });
+    }
+    
+    // Logs de auditoría (Seguridad y Aplicación) para roles admin
+    if ([1, 2, 3].includes(idRol)) {
+      finalLinks.push({ label: "AUDITORÍA", path: "/auditoria" });
+    }
+    
+    // Panel visual OWASP solo para roles top (OSI/RRHH)
+    if ([1, 2].includes(idRol)) {
+      finalLinks.push({ label: "OWASP & CIA", path: "/compliance" });
+    }
+
+    // Módulo de Análisis de Riesgos de Seguridad de Información
+    if ([1, 2, 3].includes(idRol)) {
+      finalLinks.push({ label: "RIESGOS SI", path: "/riesgos" });
+    }
   }
 
   const menuVariants = {
@@ -61,7 +76,6 @@ const Navbar = ({ loggedInUser, isMobileMenuOpen, toggleMobileMenu }) => {
                     onClick={() => isMobileMenuOpen && toggleMobileMenu()}
                   >
                     {item.label}
-                    {/* Subrayado solo para página activa */}
                     {isActive && (
                       <motion.div
                         layoutId="underline"
@@ -121,7 +135,6 @@ const Navbar = ({ loggedInUser, isMobileMenuOpen, toggleMobileMenu }) => {
                     onClick={toggleMobileMenu}
                   >
                     {item.label}
-                    {/* Subrayado solo para página activa */}
                     {isActive && (
                       <motion.div
                         layoutId="underline-mobile"

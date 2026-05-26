@@ -20,40 +20,48 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     async validate(payload: any) {
-        if (!payload) {
-            throw new UnauthorizedException({ 
-                message: 'Token inválido'
-            });
-        }
-        const data = { sub: payload.sub, usuario: payload.usuario, rol: payload.rol, must_change_password: payload.must_change_password ?? false };
-
-        const usuario = await this.usuariosService.findOne(data.sub, {
-            throwException: false,
+    if (!payload) {
+        throw new UnauthorizedException({ 
+            message: 'Token inválido'
         });
+    }
 
-        if (!usuario) {
-            throw new UnauthorizedException({ 
-                message: 'Token inválido'
-            });
-        }
+    // ✅ Agregás idRol aquí
+    const data = { 
+        sub: payload.sub, 
+        usuario: payload.usuario, 
+        rol: payload.rol,
+        idRol: payload.idRol,   // 👈 esta línea es el fix
+        must_change_password: payload.must_change_password ?? false 
+    };
 
-        if (usuario.idRol !== Rol.TEMPORAL) {
-            return data;
-        }
+    const usuario = await this.usuariosService.findOne(data.sub, {
+        throwException: false,
+    });
 
-        if (!usuario.expiracion) {
-            throw new UnauthorizedException({ 
-                message: 'Usuario invalido' 
-            });
-        }
+    if (!usuario) {
+        throw new UnauthorizedException({ 
+            message: 'Token inválido'
+        });
+    }
 
-        const now = new Date();
-        if (usuario.expiracion.getTime() <= now.getTime()) {
-            throw new UnauthorizedException({
-                message: 'Cuenta expirada'
-            });
-        }
-
+    if (usuario.idRol !== Rol.TEMPORAL) {
         return data;
     }
+
+    if (!usuario.expiracion) {
+        throw new UnauthorizedException({ 
+            message: 'Usuario invalido' 
+        });
+    }
+
+    const now = new Date();
+    if (usuario.expiracion.getTime() <= now.getTime()) {
+        throw new UnauthorizedException({
+            message: 'Cuenta expirada'
+        });
+    }
+
+    return data;
+}
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 
 import Navbar from './navbar.jsx';
 import Header from './header';
@@ -16,6 +16,9 @@ import ResetPasswordPage from '../screens/resetPasswordPage.jsx';
 import FooterBar from './footerBar.js';
 import { logout as logoutService } from '../services/authService';
 import { setAuthToken } from '../services/api';
+import PanelAuditoria from './PanelAuditoria';
+import SecurityComplianceDashboard from './SecurityComplianceDashboard';
+import RiesgosTable from './RiesgosTable';
 
 function RedirectDashboard() {
   useEffect(() => {
@@ -59,7 +62,6 @@ function App() {
     setAuthState(authData);
   }, []);
 
-  // Usado por CambiarPasswordPage para limpiar must_change_password sin volver a hacer login
   const handleAuthUpdate = useCallback((updatedAuth) => {
     localStorage.setItem('authData', JSON.stringify(updatedAuth));
     setAuthState(updatedAuth);
@@ -100,7 +102,6 @@ function App() {
             <Route path="/historia" element={<HistoriaPage />} />
             <Route path="/equipo" element={<EquipoPage />} />
 
-            {/* M-13: Cambio de contraseña (obligatorio o voluntario) */}
             <Route
               path="/cambiar-password"
               element={
@@ -111,7 +112,6 @@ function App() {
               }
             />
 
-            {/* M-16: Recuperación de contraseña (pública) */}
             <Route path="/reset-password" element={<ResetPasswordPage />} />
 
             <Route
@@ -165,7 +165,47 @@ function App() {
                 )
               }
             />
+
+            {/* --- NUEVAS RUTAS DE AUDITORÍA --- */}
+            <Route
+              path="/auditoria"
+              element={
+                [1, 2, 3].includes(loggedInUser?.idRol) ? (
+                  <PanelAuditoria loggedInUser={loggedInUser} />
+                ) : (
+                  <div className="p-12 text-center text-accent font-bold">
+                    No tienes permisos para acceder a esta página.
+                  </div>
+                )
+              }
+            />
+
+            <Route
+              path="/compliance"
+              element={
+                [1, 2].includes(loggedInUser?.idRol) ? (
+                  <SecurityComplianceDashboard />
+                ) : (
+                  <div className="p-12 text-center text-accent font-bold">
+                    No tienes permisos para acceder a esta página.
+                  </div>
+                )
+              }
+            />
+            <Route
+    path="/riesgos"
+    element={
+      [1, 2, 3].includes(loggedInUser?.idRol) ? (
+        <RiesgosTable />
+      ) : (
+        <div className="p-12 text-center text-accent font-bold">
+          No tienes permisos para acceder a esta página.
+        </div>
+      )
+    }
+  />
           </Routes>
+          
         </main>
 
         <FooterBar />

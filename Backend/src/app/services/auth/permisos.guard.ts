@@ -26,7 +26,7 @@ import { Permiso, Rol, rolTienePermiso } from '../../../shared/constants/roles.c
 interface JwtPayloadUsuario {
     sub: number;
     usuario: string;
-    rol: number;
+    idRol: number;
     must_change_password: boolean;
 }
 
@@ -48,11 +48,11 @@ export class PermisosGuard implements CanActivate {
         const request = context.switchToHttp().getRequest<{ user: JwtPayloadUsuario }>();
         const { user } = request;
 
-        if (!user || !(user.rol in Rol)) {
+        if (!user || !(user.idRol in Rol)) {
             throw new ForbiddenException('Rol no reconocido o token inválido.');
         }
 
-        const rolUsuario = user.rol as Rol;
+        const rolUsuario = user.idRol as Rol;
 
         const tieneAcceso = permisosRequeridos.every((permiso) =>
             rolTienePermiso(rolUsuario, permiso),

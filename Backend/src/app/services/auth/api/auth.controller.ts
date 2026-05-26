@@ -9,7 +9,8 @@ import { CommonResponseDto } from 'src/shared/dto/common-response.dto';
 import { LoginResponseDto } from '../dto/login-response.dto';
 import { SwaggerBadRequestCommon } from 'src/common/utils/swagger/swagger-response.utils';
 import { ForgotPasswordDto, ResetPasswordDto } from '../dto/reset-password.dto';
-
+import { CaptchaGuard } from '../guards/captcha.guard'; // ← Cambiado ./ por ../ // ← AGREGADO: Importamos el guardián de reCAPTCHA
+import { Throttle } from '@nestjs/throttler';
 @Controller('api/auth')
 export class AuthController {
 	constructor(private readonly authService: AuthService) { }
@@ -34,6 +35,8 @@ export class AuthController {
 		});
 	}
 
+	@UseGuards(CaptchaGuard)
+	@Throttle({ short: { limit: 5, ttl: 60000 } }) // ← AGREGADO: El guardián validará el token de Google ANTES de procesar las credenciales
 	@Post('/login')
 	@ApiOperation({
 		summary: 'Api iniciar sesion en el sistema'
