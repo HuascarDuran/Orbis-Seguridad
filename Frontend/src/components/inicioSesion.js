@@ -171,22 +171,31 @@ const InicioSesion = ({ onLogin, onClose }) => {
         setContrasenia("");
       } else {
         let captchaToken = null;
+try {
+  if (window.grecaptcha) {
+    console.log('grecaptcha encontrado, generando token...');
+    captchaToken = await new Promise((resolve, reject) => {
+      window.grecaptcha.ready(async () => {
         try {
-          if (window.grecaptcha) {
-            captchaToken = await new Promise((resolve) => {
-              window.grecaptcha.ready(async () => {
-                const token = await window.grecaptcha.execute(
-                  '6LdsoPwsAAAAAGTPasbJoDkohQLfWTyFVpPOnD4q',
-                  { action: 'login' }
-                );
-                resolve(token);
-              });
-            });
-          }
-        } catch (captchaError) {
-          console.warn("Fallo al obtener token de reCAPTCHA invisible:", captchaError);
+          const token = await window.grecaptcha.execute(
+            '6LdsoPwsAAAAAGTPasbJoDkohQLfWTyFVpPOnD4q',
+            { action: 'login' }
+          );
+          console.log('Token generado:', token ? token.substring(0, 30) + '...' : 'NULO');
+          resolve(token);
+        } catch (err) {
+          console.error('Error en execute:', err);
+          reject(err);
         }
-
+      });
+    });
+  } else {
+    console.warn('window.grecaptcha NO disponible');
+  }
+} catch (captchaError) {
+  console.warn("Fallo al obtener token:", captchaError);
+}
+console.log('captchaToken antes de login:', captchaToken ? 'TIENE TOKEN' : 'NULL');
         const { user, token, message } = await loginService({ usuario, contrasenia }, captchaToken);
         if (onLogin) onLogin({ user, token });
         if (user?.must_change_password) {
