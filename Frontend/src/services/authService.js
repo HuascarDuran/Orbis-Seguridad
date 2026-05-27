@@ -24,9 +24,10 @@ export const login = async ({ usuario, contrasenia }, captchaToken) => {
     throw new Error('Usuario y contraseña son requeridos');
   }
 
-  const config = captchaToken
-    ? { headers: { 'x-captcha-token': captchaToken } }
-    : {};
+  const config = captchaToken 
+  ? { headers: { 'x-captcha-token': captchaToken } } 
+  : {};
+console.log('Enviando login con header:', config.headers);
 
   const response = await API.post('/api/auth/login', { usuario, contrasenia }, config);
   const data = response.data ?? response;
