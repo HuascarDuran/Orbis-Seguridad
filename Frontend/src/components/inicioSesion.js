@@ -176,7 +176,7 @@ const InicioSesion = ({ onLogin, onClose }) => {
             captchaToken = await new Promise((resolve) => {
               window.grecaptcha.ready(async () => {
                 const token = await window.grecaptcha.execute(
-                  '6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI',
+                  '6LdsoPwsAAAAAGTPasbJoDkohQLfWTyFVpPOnD4q',
                   { action: 'login' }
                 );
                 resolve(token);
