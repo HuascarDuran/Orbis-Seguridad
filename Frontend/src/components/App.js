@@ -13,6 +13,7 @@ import AdminEmpresasDashboard from './AdminEmpresasDashboard.jsx';
 import AdministrarUsuarioPanel from './administrarUsuarioPanel';
 import CambiarPasswordPage from '../screens/cambiarPasswordPage.jsx';
 import ResetPasswordPage from '../screens/resetPasswordPage.jsx';
+import VerifyEmailPage from '../screens/verifyEmailPage.jsx';
 import FooterBar from './footerBar.js';
 import { logout as logoutService } from '../services/authService';
 import { setAuthToken } from '../services/api';
@@ -73,11 +74,10 @@ function App() {
     setAuthState({ user: null, token: null });
   }, []);
 
-  const loggedInUser = authState?.user ?? null;
-  // Acceso admin: SUPERADMIN=1, ADMIN_RRHH=2 para usuarios; ADMIN_EMPRESAS=3 para gestión de empresas
-  const canAccessAdmin = loggedInUser && loggedInUser.idRol <= 3;
+  const loggedInUser        = authState?.user ?? null;
+  const canAccessAdmin      = loggedInUser && loggedInUser.idRol <= 3;
   const canAccessAdminEmpresas = loggedInUser && [1, 3].includes(loggedInUser.idRol);
-  const canManageUsers = loggedInUser && loggedInUser.idRol <= 2;
+  const canManageUsers      = loggedInUser && loggedInUser.idRol <= 2;
 
   return (
     <Router>
@@ -113,6 +113,11 @@ function App() {
             />
 
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+
+            {/* [NUEVO] Ruta pública de verificación de correo.
+                No requiere auth — el token en la URL es la única credencial.
+                Mismo patrón que /reset-password: accesible sin estar logueado. */}
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
 
             <Route
               path="/dashboards"
@@ -166,7 +171,6 @@ function App() {
               }
             />
 
-            {/* --- NUEVAS RUTAS DE AUDITORÍA --- */}
             <Route
               path="/auditoria"
               element={
@@ -192,20 +196,20 @@ function App() {
                 )
               }
             />
+
             <Route
-    path="/riesgos"
-    element={
-      [1, 2, 3].includes(loggedInUser?.idRol) ? (
-        <RiesgosTable />
-      ) : (
-        <div className="p-12 text-center text-accent font-bold">
-          No tienes permisos para acceder a esta página.
-        </div>
-      )
-    }
-  />
+              path="/riesgos"
+              element={
+                [1, 2, 3].includes(loggedInUser?.idRol) ? (
+                  <RiesgosTable />
+                ) : (
+                  <div className="p-12 text-center text-accent font-bold">
+                    No tienes permisos para acceder a esta página.
+                  </div>
+                )
+              }
+            />
           </Routes>
-          
         </main>
 
         <FooterBar />

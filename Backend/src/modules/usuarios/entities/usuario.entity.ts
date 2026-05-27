@@ -1,6 +1,12 @@
 import {
-    Column, CreateDateColumn, DeleteDateColumn, Entity, JoinColumn,
-    ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn,
+    Column,
+    CreateDateColumn,
+    DeleteDateColumn,
+    Entity,
+    JoinColumn,
+    ManyToOne,
+    PrimaryGeneratedColumn,
+    UpdateDateColumn,
 } from 'typeorm';
 import { Rol } from '../modules/roles/entities/rol.entity';
 
@@ -9,39 +15,41 @@ export class Usuario {
     @PrimaryGeneratedColumn({ name: 'id_usuario' })
     id: number;
 
-    @Column({ name: 'usuario' })
+    @Column({ name: 'usuario', type: 'varchar', unique: true })
     usuario: string;
 
-    @Column({ name: 'correo' })
+    @Column({ name: 'correo', type: 'varchar' })
     correo: string;
 
-    @Column({ name: 'correo_real', nullable: true })
-    correoReal: string;
+    // type: 'varchar' explícito — necesario cuando la propiedad TS es `string | null`
+    // porque TypeORM no puede inferir el tipo SQL desde la unión con null.
+    @Column({ name: 'correo_real', type: 'varchar', nullable: true })
+    correoReal: string | null;
 
-    @Column({ name: 'contrasenia' })
+    @Column({ name: 'contrasenia', type: 'varchar' })
     contrasenia: string;
 
-    @Column({ name: 'nombre', nullable: true })
-    nombre: string;
+    @Column({ name: 'nombre', type: 'varchar', nullable: true })
+    nombre: string | null;
 
-    @Column({ name: 'apellido', nullable: true })
-    apellido: string;
+    @Column({ name: 'apellido', type: 'varchar', nullable: true })
+    apellido: string | null;
 
     @Column({ name: 'id_rol' })
     idRol: number;
 
-    // --- Seguridad de contraseña ---
+    // ─── Seguridad de contraseña ──────────────────────────────────────────────
 
     @Column({ name: 'must_change_password', default: true })
     mustChangePassword: boolean;
 
     @Column({ name: 'password_changed_at', type: 'timestamp', nullable: true })
-    passwordChangedAt: Date;
+    passwordChangedAt: Date | null;
 
     @Column({ name: 'password_expires_at', type: 'timestamp', nullable: true })
-    passwordExpiresAt: Date;
+    passwordExpiresAt: Date | null;
 
-    // --- Bloqueo de cuenta ---
+    // ─── Bloqueo de cuenta ────────────────────────────────────────────────────
 
     @Column({ name: 'is_locked', default: false })
     isLocked: boolean;
@@ -50,25 +58,39 @@ export class Usuario {
     failedAttempts: number;
 
     @Column({ name: 'locked_at', type: 'timestamp', nullable: true })
-    lockedAt: Date;
+    lockedAt: Date | null;
 
-    // --- Acceso a formulario externo ---
+    // ─── Acceso a formulario externo ──────────────────────────────────────────
 
     @Column({ name: 'acceso_formulario_externo', default: false })
     accesoFormularioExterno: boolean;
 
-    // --- Reset de contraseña ---
+    // ─── Reset de contraseña ──────────────────────────────────────────────────
 
-    @Column({ name: 'reset_token', nullable: true })
-    resetToken: string;
+    @Column({ name: 'reset_token', type: 'varchar', nullable: true })
+    resetToken: string | null;
 
     @Column({ name: 'reset_token_expires', type: 'timestamp', nullable: true })
-    resetTokenExpires: Date;
+    resetTokenExpires: Date | null;
 
-    // --- Usuarios temporales ---
+    // ─── Usuarios temporales ──────────────────────────────────────────────────
 
-    @Column({ name: 'expiracion', type: 'timestamp without time zone', nullable: true })
-    expiracion?: Date;
+    @Column({
+        name: 'expiracion',
+        type: 'timestamp without time zone',
+        nullable: true,
+    })
+    expiracion: Date | null;
+
+    // ─── Verificación de correo (Soft Validation) ─────────────────────────────
+
+    @Column({ name: 'is_email_verified', default: false })
+    isEmailVerified: boolean;
+
+    @Column({ name: 'email_verification_token', type: 'varchar', nullable: true })
+    emailVerificationToken: string | null;
+
+    // ─── Auditoría ────────────────────────────────────────────────────────────
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
@@ -77,7 +99,7 @@ export class Usuario {
     updatedAt: Date;
 
     @DeleteDateColumn({ name: 'deleted_at', nullable: true })
-    deletedAt: Date;
+    deletedAt: Date | null;
 
     @ManyToOne(() => Rol, (rol) => rol.usuarios)
     @JoinColumn({ name: 'id_rol' })

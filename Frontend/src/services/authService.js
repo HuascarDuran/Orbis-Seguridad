@@ -18,23 +18,21 @@ const decodeJwt = (token) => {
   }
 };
 
-// CORREGIDO: Recibe captchaToken como segundo parámetro desde inicioSesion.js
+// Sin cambios — login existente
 export const login = async ({ usuario, contrasenia }, captchaToken) => {
   if (!usuario || !contrasenia) {
     throw new Error('Usuario y contraseña son requeridos');
   }
 
-  // Si existe el token de captcha, lo inyectamos en los headers de la instancia API
-  const config = captchaToken 
-    ? { headers: { 'x-captcha-token': captchaToken } } 
+  const config = captchaToken
+    ? { headers: { 'x-captcha-token': captchaToken } }
     : {};
 
-  // Pasamos config como tercer parámetro al método POST
   const response = await API.post('/api/auth/login', { usuario, contrasenia }, config);
   const data = response.data ?? response;
 
   const accessToken = data.access_token;
-  const idUsuario = data.idUsuario;
+  const idUsuario   = data.idUsuario;
 
   if (!accessToken || !idUsuario) {
     throw new Error('La respuesta de autenticación no contiene los datos requeridos');
@@ -43,10 +41,10 @@ export const login = async ({ usuario, contrasenia }, captchaToken) => {
   const decoded = decodeJwt(accessToken) || {};
 
   const user = {
-    id: idUsuario,
-    usuario: decoded.usuario || usuario,
-    idRol: decoded.rol ?? decoded.role ?? null,
-    exp: decoded.exp ?? null,
+    id:                   idUsuario,
+    usuario:              decoded.usuario || usuario,
+    idRol:                decoded.rol ?? decoded.role ?? null,
+    exp:                  decoded.exp ?? null,
     must_change_password: data.must_change_password ?? decoded.must_change_password ?? false,
   };
 
@@ -54,23 +52,60 @@ export const login = async ({ usuario, contrasenia }, captchaToken) => {
 
   return {
     message: data.message,
-    token: accessToken,
+    token:   accessToken,
     user,
   };
 };
 
-export const registerVisitor = async ({ usuario, correo, contrasenia, idRol = 7 }) => {
-  const payload = { usuario, correo, contrasenia, idRol };
-  const response = await API.post('/api/auth/register', payload);
+/**
+ * Auto-registro público de visitante.
+ *
+ * CAMBIOS respecto a la versión anterior:
+ *  - Endpoint: /api/auth/register  →  /api/auth/register-public
+ *  - Payload:  { usuario, correo, contrasenia, idRol }
+ *           →  { nombre, apellidoPaterno, apellidoMaterno?, correo, contrasenia }
+ *
+ * Se eliminaron `usuario` e `idRol` del payload porque ahora el backend
+ * construye el alias y fuerza el rol VISITANTE (defensa contra Mass Assignment).
+ * `apellidoMaterno` es opcional: si no se pasa, el backend lo ignora.
+ */
+export const registerVisitor = async ({
+  nombre,
+  apellidoPaterno,
+  apellidoMaterno,
+  correo,
+  contrasenia,
+}) => {
+  const payload = {
+    nombre,
+    apellidoPaterno,
+    correo,
+    contrasenia,
+    // Solo incluimos apellidoMaterno si tiene valor — evita enviar undefined al servidor
+    ...(apellidoMaterno ? { apellidoMaterno } : {}),
+  };
+
+  const response = await API.post('/api/auth/register-public', payload);
   return response.data ?? response;
 };
 
+/**
+ * Verificación de email mediante el token recibido por correo.
+ * Se llama desde la página /verify-email al montar el componente,
+ * leyendo el query param ?token= de la URL.
+ */
+export const verifyEmail = async (token) => {
+  const response = await API.get('/api/auth/verify-email', {
+    params: { token },
+  });
+  return response.data ?? response;
+};
+
+// Sin cambios — resto de métodos existentes
 export const logout = () => {
   clearAuthToken();
 };
 
-// M-14: Cambio de contraseña del usuario autenticado
-// passwordActual es undefined/vacío cuando es cambio forzado (primer login)
 export const cambiarPassword = async (passwordActual, passwordNuevo) => {
   const body = { passwordNuevo };
   if (passwordActual) body.passwordActual = passwordActual;
@@ -78,19 +113,16 @@ export const cambiarPassword = async (passwordActual, passwordNuevo) => {
   return response.data ?? response;
 };
 
-// M-16: Solicitar restablecimiento de contraseña por correo
 export const solicitarResetPassword = async (correo) => {
   const response = await API.post('/api/auth/forgot-password', { correo });
   return response.data ?? response;
 };
 
-// M-16: Validar si un token de reset es válido
 export const validarTokenReset = async (token) => {
   const response = await API.get(`/api/auth/reset-password/validate/${token}`);
   return response.data ?? response;
 };
 
-// M-16: Confirmar el nuevo password con el token
 export const resetearPassword = async (token, passwordNuevo) => {
   const response = await API.post('/api/auth/reset-password', { token, passwordNuevo });
   return response.data ?? response;

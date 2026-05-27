@@ -1,15 +1,15 @@
 // src/components/RiesgosTable.jsx
 import React, { useEffect, useState, useCallback } from 'react';
-import API from '../services/api'; // tu instancia con JWT
+import API from '../services/api';
 import RiesgoForm from './RiesgoForm';
 import { exportarRiesgosAExcel } from './utils/exportarRiesgosExcel';
 
 // Mapa de colores según matriz de calor
 const COLORES_NIVEL = {
-  Bajo:     { bg: '#22c55e', text: '#ffffff' }, // Verde
-  Moderado: { bg: '#facc15', text: '#1f2937' }, // Amarillo
-  Alto:     { bg: '#f97316', text: '#ffffff' }, // Naranja
-  Extremo:  { bg: '#dc2626', text: '#ffffff' }, // Rojo
+  Bajo:     { bg: '#22c55e', text: '#ffffff' },
+  Moderado: { bg: '#facc15', text: '#1f2937' },
+  Alto:     { bg: '#f97316', text: '#ffffff' },
+  Extremo:  { bg: '#dc2626', text: '#ffffff' },
 };
 
 const celdaNivel = (nivel) => {
@@ -53,7 +53,6 @@ const groupHeaderStyle = {
   textAlign: 'center',
 };
 
-// Botones de la barra de acciones
 const btnPrimary = {
   padding: '8px 16px',
   backgroundColor: '#1e3a8a',
@@ -99,6 +98,90 @@ const btnDanger = {
   fontSize: 11,
 };
 
+// ── Estilos del tooltip ──────────────────────────────────────────────────────
+const tooltipWrapperStyle = {
+  position: 'relative',
+  display: 'inline-block',
+  cursor: 'default',
+};
+
+const tooltipBoxStyle = {
+  position: 'absolute',
+  zIndex: 200,
+  bottom: '135%',
+  left: '50%',
+  transform: 'translateX(-50%)',
+  backgroundColor: '#0f172a',
+  color: '#fff',
+  fontSize: 12,
+  borderRadius: 6,
+  padding: '8px 12px',
+  whiteSpace: 'nowrap',
+  boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+  pointerEvents: 'none',
+  lineHeight: 1.7,
+};
+
+// ── Componente AuditoriaTooltip ──────────────────────────────────────────────
+function AuditoriaTooltip({ usuarioNombre, ipOrigen, fechaCreacion }) {
+  const [visible, setVisible] = useState(false);
+
+  // Registros viejos sin trazabilidad no muestran el ícono
+  if (!usuarioNombre && !ipOrigen) return null;
+
+  const fecha = fechaCreacion
+    ? new Date(fechaCreacion).toLocaleString('es-BO', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      })
+    : '—';
+
+  return (
+    <div
+      style={tooltipWrapperStyle}
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      {/* Ícono circular "i" */}
+      <span style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 22,
+        height: 22,
+        borderRadius: '50%',
+        backgroundColor: visible ? '#1e3a8a' : '#e2e8f0',
+        color: visible ? '#fff' : '#64748b',
+        fontSize: 12,
+        fontWeight: 700,
+        transition: 'all 0.2s ease',
+        userSelect: 'none',
+      }}>
+        i
+      </span>
+
+      {/* Tooltip */}
+      {visible && (
+        <div style={tooltipBoxStyle}>
+          <div style={{
+            marginBottom: 4,
+            paddingBottom: 4,
+            borderBottom: '1px solid #334155',
+            fontWeight: 700,
+            letterSpacing: '0.02em',
+          }}>
+            🔍 Trazabilidad
+          </div>
+          <div>👤 <strong>Usuario:</strong> {usuarioNombre ?? '—'}</div>
+          <div>🌐 <strong>IP:</strong> {ipOrigen ?? '—'}</div>
+          <div>🕐 <strong>Fecha:</strong> {fecha}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Componente principal ─────────────────────────────────────────────────────
 export default function RiesgosTable() {
   const [riesgos, setRiesgos] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -178,19 +261,14 @@ export default function RiesgosTable() {
           Matriz de Análisis de Riesgos de Seguridad de Información
         </h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button style={btnPrimary} onClick={handleNuevo}>
-            + Nuevo Riesgo
-          </button>
-          <button style={btnSuccess} onClick={handleExportar}>
-            📊 Exportar a Excel
-          </button>
+          <button style={btnPrimary} onClick={handleNuevo}>+ Nuevo Riesgo</button>
+          <button style={btnSuccess} onClick={handleExportar}>📊 Exportar a Excel</button>
         </div>
       </div>
 
       <div style={{ overflowX: 'auto', border: '1px solid #cbd5e1', borderRadius: 6 }}>
         <table style={{ borderCollapse: 'collapse', minWidth: 2300, width: '100%' }}>
           <thead>
-            {/* Fila de agrupadores */}
             <tr>
               <th colSpan={2} style={groupHeaderStyle}>Activo de Información</th>
               <th colSpan={1} style={groupHeaderStyle}>Identificación</th>
@@ -203,7 +281,6 @@ export default function RiesgosTable() {
               <th colSpan={4} style={groupHeaderStyle}>Riesgo Residual</th>
               <th rowSpan={2} style={groupHeaderStyle}>Acciones</th>
             </tr>
-            {/* Fila de columnas */}
             <tr>
               <th style={headerStyle}>Activo Información</th>
               <th style={headerStyle}>Aplicativos / Sistemas</th>
@@ -240,12 +317,8 @@ export default function RiesgosTable() {
                 <td style={celdaBase}>{r.riesgo_consecuencia}</td>
                 <td style={{ ...celdaBase, textAlign: 'center' }}>{r.probabilidad_inherente}</td>
                 <td style={{ ...celdaBase, textAlign: 'center' }}>{r.impacto_inherente}</td>
-                <td style={{ ...celdaBase, textAlign: 'center', fontWeight: 600 }}>
-                  {r.riesgo_inherente}
-                </td>
-                <td style={celdaNivel(r.nivel_riesgo_inherente)}>
-                  {r.nivel_riesgo_inherente}
-                </td>
+                <td style={{ ...celdaBase, textAlign: 'center', fontWeight: 600 }}>{r.riesgo_inherente}</td>
+                <td style={celdaNivel(r.nivel_riesgo_inherente)}>{r.nivel_riesgo_inherente}</td>
                 <td style={celdaBase}>{r.tratamiento_riesgo}</td>
                 <td style={celdaBase}>{r.controles_implementar}</td>
                 <td style={{ ...celdaBase, textAlign: 'center' }}>{r.tipo_control}</td>
@@ -253,15 +326,20 @@ export default function RiesgosTable() {
                 <td style={{ ...celdaBase, textAlign: 'center' }}>{r.frecuencia_control}</td>
                 <td style={{ ...celdaBase, textAlign: 'center' }}>{r.probabilidad_residual}</td>
                 <td style={{ ...celdaBase, textAlign: 'center' }}>{r.impacto_residual}</td>
-                <td style={{ ...celdaBase, textAlign: 'center', fontWeight: 600 }}>
-                  {r.riesgo_residual}
-                </td>
-                <td style={celdaNivel(r.nivel_riesgo_residual)}>
-                  {r.nivel_riesgo_residual}
-                </td>
+                <td style={{ ...celdaBase, textAlign: 'center', fontWeight: 600 }}>{r.riesgo_residual}</td>
+                <td style={celdaNivel(r.nivel_riesgo_residual)}>{r.nivel_riesgo_residual}</td>
+
+                {/* Celda de acciones con tooltip de trazabilidad */}
                 <td style={{ ...celdaBase, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                  <button style={btnEdit} onClick={() => handleEditar(r)}>Editar</button>
-                  <button style={btnDanger} onClick={() => handleEliminar(r.id)}>Eliminar</button>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <AuditoriaTooltip
+                      usuarioNombre={r.usuario_nombre}
+                      ipOrigen={r.ip_origen}
+                      fechaCreacion={r.created_at}
+                    />
+                    <button style={btnEdit} onClick={() => handleEditar(r)}>Editar</button>
+                    <button style={btnDanger} onClick={() => handleEliminar(r.id)}>Eliminar</button>
+                  </div>
                 </td>
               </tr>
             ))}

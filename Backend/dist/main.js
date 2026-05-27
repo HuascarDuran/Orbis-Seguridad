@@ -195,32 +195,39 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AuthController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const express_1 = __webpack_require__(/*! express */ "express");
+const throttler_1 = __webpack_require__(/*! @nestjs/throttler */ "@nestjs/throttler");
+const swagger_1 = __webpack_require__(/*! @nestjs/swagger */ "@nestjs/swagger");
 const auth_service_1 = __webpack_require__(/*! ../services/auth.service */ "./src/app/services/auth/services/auth.service.ts");
 const register_dto_1 = __webpack_require__(/*! ../dto/register.dto */ "./src/app/services/auth/dto/register.dto.ts");
+const register_public_dto_1 = __webpack_require__(/*! ../dto/register-public.dto */ "./src/app/services/auth/dto/register-public.dto.ts");
 const login_dto_1 = __webpack_require__(/*! ../dto/login.dto */ "./src/app/services/auth/dto/login.dto.ts");
+const reset_password_dto_1 = __webpack_require__(/*! ../dto/reset-password.dto */ "./src/app/services/auth/dto/reset-password.dto.ts");
+const captcha_guard_1 = __webpack_require__(/*! ../guards/captcha.guard */ "./src/app/services/auth/guards/captcha.guard.ts");
 const utils_1 = __webpack_require__(/*! src/common/utils */ "./src/common/utils/index.ts");
-const swagger_1 = __webpack_require__(/*! @nestjs/swagger */ "@nestjs/swagger");
 const common_response_dto_1 = __webpack_require__(/*! src/shared/dto/common-response.dto */ "./src/shared/dto/common-response.dto.ts");
 const login_response_dto_1 = __webpack_require__(/*! ../dto/login-response.dto */ "./src/app/services/auth/dto/login-response.dto.ts");
 const swagger_response_utils_1 = __webpack_require__(/*! src/common/utils/swagger/swagger-response.utils */ "./src/common/utils/swagger/swagger-response.utils.ts");
-const reset_password_dto_1 = __webpack_require__(/*! ../dto/reset-password.dto */ "./src/app/services/auth/dto/reset-password.dto.ts");
-const captcha_guard_1 = __webpack_require__(/*! ../guards/captcha.guard */ "./src/app/services/auth/guards/captcha.guard.ts");
-const throttler_1 = __webpack_require__(/*! @nestjs/throttler */ "@nestjs/throttler");
 let AuthController = class AuthController {
     authService;
     constructor(authService) {
         this.authService = authService;
     }
     async register(data, res) {
-        const usuario = await this.authService.register(data);
-        return (0, utils_1.CreatedRes)(res, {
-            message: 'El usuario fue registrado'
-        });
+        await this.authService.register(data);
+        return (0, utils_1.CreatedRes)(res, { message: 'El usuario fue registrado' });
+    }
+    async registerPublic(data, res, req) {
+        const result = await this.authService.registerPublic(data, req.ip ?? '127.0.0.1');
+        return (0, utils_1.CreatedRes)(res, result);
+    }
+    async verifyEmail(token, res, req) {
+        const result = await this.authService.verifyEmail(token, req.ip ?? '127.0.0.1');
+        return (0, utils_1.OkRes)(res, result);
     }
     async login(data, res, req) {
         const response = await this.authService.login(data, req.ip ?? '127.0.0.1');
@@ -229,7 +236,7 @@ let AuthController = class AuthController {
     async forgotPassword(dto, res, req) {
         await this.authService.solicitarResetPassword(dto.correo, req.ip ?? '127.0.0.1');
         return (0, utils_1.OkRes)(res, {
-            message: 'Si existe una cuenta con ese correo, recibirás un enlace para restablecer tu contraseña.'
+            message: 'Si existe una cuenta con ese correo, recibirás un enlace para restablecer tu contraseña.',
         });
     }
     async validateResetToken(token, res) {
@@ -245,16 +252,17 @@ exports.AuthController = AuthController;
 __decorate([
     (0, common_1.Post)('/register'),
     (0, swagger_1.ApiOperation)({
-        summary: 'Api para registrar usuarios como visitantes',
+        summary: '[Admin/RRHH] Registrar usuario desde panel administrativo',
+        description: 'Uso exclusivo del panel de RRHH. Para auto-registro público de visitantes, usar POST /register-public.',
     }),
     (0, swagger_1.ApiCreatedResponse)({
-        description: 'Respuesta en caso de crear usuario exitosamente',
-        type: common_response_dto_1.CommonResponseDto
+        description: 'Usuario creado exitosamente',
+        type: common_response_dto_1.CommonResponseDto,
     }),
     (0, swagger_1.ApiBadRequestResponse)((0, swagger_response_utils_1.SwaggerBadRequestCommon)()),
     (0, swagger_1.ApiConflictResponse)({
-        description: 'Respuesta en caso de nombre de usuario ya usado',
-        type: common_response_dto_1.CommonResponseDto
+        description: 'Nombre de usuario o correo ya registrado',
+        type: common_response_dto_1.CommonResponseDto,
     }),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, common_1.Res)()),
@@ -264,61 +272,121 @@ __decorate([
 ], AuthController.prototype, "register", null);
 __decorate([
     (0, common_1.UseGuards)(captcha_guard_1.CaptchaGuard),
-    (0, throttler_1.Throttle)({ short: { limit: 5, ttl: 60000 } }),
-    (0, common_1.Post)('/login'),
+    (0, throttler_1.Throttle)({ short: { limit: 3, ttl: 3600000 } }),
+    (0, common_1.Post)('/register-public'),
     (0, swagger_1.ApiOperation)({
-        summary: 'Api iniciar sesion en el sistema'
+        summary: '[Público] Auto-registro de visitante',
+        description: 'El alias (usuario) se construye en el backend a partir del nombre y apellido. ' +
+            'El rol se fuerza a VISITANTE independientemente de lo que envíe el cliente. ' +
+            'Se envía un correo de verificación; la cuenta queda inactiva hasta confirmarla.',
+    }),
+    (0, swagger_1.ApiCreatedResponse)({
+        description: 'Registro recibido. Correo de verificación enviado.',
+        type: common_response_dto_1.CommonResponseDto,
+    }),
+    (0, swagger_1.ApiBadRequestResponse)((0, swagger_response_utils_1.SwaggerBadRequestCommon)()),
+    (0, swagger_1.ApiConflictResponse)({
+        description: 'El alias o correo ya se encuentra registrado (mensaje genérico)',
+        type: common_response_dto_1.CommonResponseDto,
+    }),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Res)()),
+    __param(2, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [typeof (_d = typeof register_public_dto_1.RegisterPublicDto !== "undefined" && register_public_dto_1.RegisterPublicDto) === "function" ? _d : Object, typeof (_e = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _e : Object, typeof (_f = typeof express_1.Request !== "undefined" && express_1.Request) === "function" ? _f : Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "registerPublic", null);
+__decorate([
+    (0, throttler_1.Throttle)({ short: { limit: 10, ttl: 60000 } }),
+    (0, common_1.Get)('/verify-email'),
+    (0, swagger_1.ApiOperation)({
+        summary: '[Público] Verificar correo electrónico mediante token',
+        description: 'Consume el token enviado al correo del visitante. ' +
+            'Idempotente: si el correo ya estaba verificado, responde con 200 sin error. ' +
+            'El mensaje de respuesta es genérico para no revelar el estado interno de la cuenta.',
+    }),
+    (0, swagger_1.ApiQuery)({
+        name: 'token',
+        description: 'Token de verificación recibido por correo (en claro, 64 hex chars)',
+        required: true,
+        type: String,
     }),
     (0, swagger_1.ApiOkResponse)({
-        description: 'Respuesta en caso de iniciar sesion exitosamente',
-        type: login_response_dto_1.LoginResponseDto
+        description: 'Correo verificado correctamente (o mensaje genérico en caso de fallo)',
+        type: common_response_dto_1.CommonResponseDto,
+    }),
+    __param(0, (0, common_1.Query)('token')),
+    __param(1, (0, common_1.Res)()),
+    __param(2, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, typeof (_g = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _g : Object, typeof (_h = typeof express_1.Request !== "undefined" && express_1.Request) === "function" ? _h : Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "verifyEmail", null);
+__decorate([
+    (0, common_1.UseGuards)(captcha_guard_1.CaptchaGuard),
+    (0, throttler_1.Throttle)({ short: { limit: 5, ttl: 60000 } }),
+    (0, common_1.Post)('/login'),
+    (0, swagger_1.ApiOperation)({ summary: 'Iniciar sesión en el sistema' }),
+    (0, swagger_1.ApiOkResponse)({
+        description: 'Sesión iniciada exitosamente',
+        type: login_response_dto_1.LoginResponseDto,
     }),
     (0, swagger_1.ApiUnauthorizedResponse)({
-        description: 'Respuesta en caso de ingresar credenciales incorrectas',
-        type: common_response_dto_1.CommonResponseDto
+        description: 'Credenciales incorrectas o cuenta bloqueada',
+        type: common_response_dto_1.CommonResponseDto,
     }),
     (0, swagger_1.ApiBadRequestResponse)((0, swagger_response_utils_1.SwaggerBadRequestCommon)()),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, common_1.Res)()),
     __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_d = typeof login_dto_1.LoginDto !== "undefined" && login_dto_1.LoginDto) === "function" ? _d : Object, typeof (_e = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _e : Object, typeof (_f = typeof express_1.Request !== "undefined" && express_1.Request) === "function" ? _f : Object]),
+    __metadata("design:paramtypes", [typeof (_j = typeof login_dto_1.LoginDto !== "undefined" && login_dto_1.LoginDto) === "function" ? _j : Object, typeof (_k = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _k : Object, typeof (_l = typeof express_1.Request !== "undefined" && express_1.Request) === "function" ? _l : Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "login", null);
 __decorate([
     (0, common_1.Post)('/forgot-password'),
     (0, swagger_1.ApiOperation)({ summary: 'Solicitar restablecimiento de contraseña por correo' }),
-    (0, swagger_1.ApiOkResponse)({ description: 'Correo enviado si la cuenta existe', type: common_response_dto_1.CommonResponseDto }),
+    (0, swagger_1.ApiOkResponse)({
+        description: 'Correo enviado si la cuenta existe (respuesta siempre idéntica)',
+        type: common_response_dto_1.CommonResponseDto,
+    }),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, common_1.Res)()),
     __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_g = typeof reset_password_dto_1.ForgotPasswordDto !== "undefined" && reset_password_dto_1.ForgotPasswordDto) === "function" ? _g : Object, typeof (_h = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _h : Object, typeof (_j = typeof express_1.Request !== "undefined" && express_1.Request) === "function" ? _j : Object]),
+    __metadata("design:paramtypes", [typeof (_m = typeof reset_password_dto_1.ForgotPasswordDto !== "undefined" && reset_password_dto_1.ForgotPasswordDto) === "function" ? _m : Object, typeof (_o = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _o : Object, typeof (_p = typeof express_1.Request !== "undefined" && express_1.Request) === "function" ? _p : Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "forgotPassword", null);
 __decorate([
     (0, common_1.Get)('/reset-password/validate/:token'),
     (0, swagger_1.ApiOperation)({ summary: 'Validar si un token de restablecimiento es válido' }),
-    (0, swagger_1.ApiOkResponse)({ description: 'Estado de validez del token', type: common_response_dto_1.CommonResponseDto }),
+    (0, swagger_1.ApiOkResponse)({
+        description: 'Estado de validez del token',
+        type: common_response_dto_1.CommonResponseDto,
+    }),
     __param(0, (0, common_1.Param)('token')),
     __param(1, (0, common_1.Res)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, typeof (_k = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _k : Object]),
+    __metadata("design:paramtypes", [String, typeof (_q = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _q : Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "validateResetToken", null);
 __decorate([
     (0, common_1.Post)('/reset-password'),
     (0, swagger_1.ApiOperation)({ summary: 'Confirmar el restablecimiento de contraseña con token' }),
-    (0, swagger_1.ApiOkResponse)({ description: 'Contraseña actualizada exitosamente', type: common_response_dto_1.CommonResponseDto }),
+    (0, swagger_1.ApiOkResponse)({
+        description: 'Contraseña actualizada exitosamente',
+        type: common_response_dto_1.CommonResponseDto,
+    }),
     (0, swagger_1.ApiBadRequestResponse)((0, swagger_response_utils_1.SwaggerBadRequestCommon)()),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, common_1.Res)()),
     __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_l = typeof reset_password_dto_1.ResetPasswordDto !== "undefined" && reset_password_dto_1.ResetPasswordDto) === "function" ? _l : Object, typeof (_m = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _m : Object, typeof (_o = typeof express_1.Request !== "undefined" && express_1.Request) === "function" ? _o : Object]),
+    __metadata("design:paramtypes", [typeof (_r = typeof reset_password_dto_1.ResetPasswordDto !== "undefined" && reset_password_dto_1.ResetPasswordDto) === "function" ? _r : Object, typeof (_s = typeof express_1.Response !== "undefined" && express_1.Response) === "function" ? _s : Object, typeof (_t = typeof express_1.Request !== "undefined" && express_1.Request) === "function" ? _t : Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "resetPassword", null);
 exports.AuthController = AuthController = __decorate([
+    (0, swagger_1.ApiTags)('Autenticación'),
     (0, common_1.Controller)('api/auth'),
     __metadata("design:paramtypes", [typeof (_a = typeof auth_service_1.AuthService !== "undefined" && auth_service_1.AuthService) === "function" ? _a : Object])
 ], AuthController);
@@ -484,6 +552,83 @@ __decorate([
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", String)
 ], LoginDto.prototype, "contrasenia", void 0);
+
+
+/***/ }),
+
+/***/ "./src/app/services/auth/dto/register-public.dto.ts":
+/*!**********************************************************!*\
+  !*** ./src/app/services/auth/dto/register-public.dto.ts ***!
+  \**********************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.RegisterPublicDto = void 0;
+const class_validator_1 = __webpack_require__(/*! class-validator */ "class-validator");
+const class_transformer_1 = __webpack_require__(/*! class-transformer */ "class-transformer");
+class RegisterPublicDto {
+    nombre;
+    apellidoPaterno;
+    apellidoMaterno;
+    correo;
+    contrasenia;
+}
+exports.RegisterPublicDto = RegisterPublicDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)({ message: 'El nombre es obligatorio.' }),
+    (0, class_validator_1.MinLength)(2, { message: 'El nombre debe tener al menos 2 caracteres.' }),
+    (0, class_validator_1.MaxLength)(50, { message: 'El nombre no puede superar 50 caracteres.' }),
+    (0, class_validator_1.Matches)(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s'-]+$/, {
+        message: 'El nombre solo puede contener letras, espacios, apóstrofes y guiones.',
+    }),
+    (0, class_transformer_1.Transform)(({ value }) => typeof value === 'string' ? value.trim() : value),
+    __metadata("design:type", String)
+], RegisterPublicDto.prototype, "nombre", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)({ message: 'El apellido paterno es obligatorio.' }),
+    (0, class_validator_1.MinLength)(2, { message: 'El apellido paterno debe tener al menos 2 caracteres.' }),
+    (0, class_validator_1.MaxLength)(50, { message: 'El apellido paterno no puede superar 50 caracteres.' }),
+    (0, class_validator_1.Matches)(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s'-]+$/, {
+        message: 'El apellido paterno solo puede contener letras, espacios, apóstrofes y guiones.',
+    }),
+    (0, class_transformer_1.Transform)(({ value }) => typeof value === 'string' ? value.trim() : value),
+    __metadata("design:type", String)
+], RegisterPublicDto.prototype, "apellidoPaterno", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.MaxLength)(50, { message: 'El apellido materno no puede superar 50 caracteres.' }),
+    (0, class_validator_1.Matches)(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s'-]*$/, {
+        message: 'El apellido materno solo puede contener letras, espacios, apóstrofes y guiones.',
+    }),
+    (0, class_transformer_1.Transform)(({ value }) => typeof value === 'string' ? value.trim() : value),
+    __metadata("design:type", String)
+], RegisterPublicDto.prototype, "apellidoMaterno", void 0);
+__decorate([
+    (0, class_validator_1.IsEmail)({}, { message: 'El correo electrónico no es válido.' }),
+    (0, class_validator_1.MaxLength)(120, { message: 'El correo no puede superar 120 caracteres.' }),
+    (0, class_transformer_1.Transform)(({ value }) => typeof value === 'string' ? value.toLowerCase().trim() : value),
+    __metadata("design:type", String)
+], RegisterPublicDto.prototype, "correo", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)({ message: 'La contraseña es obligatoria.' }),
+    (0, class_validator_1.MinLength)(8, { message: 'La contraseña debe tener al menos 8 caracteres.' }),
+    (0, class_validator_1.MaxLength)(128, { message: 'La contraseña no puede superar 128 caracteres.' }),
+    __metadata("design:type", String)
+], RegisterPublicDto.prototype, "contrasenia", void 0);
 
 
 /***/ }),
@@ -886,6 +1031,25 @@ const jwt_config_1 = __webpack_require__(/*! src/config/services/jwt.config */ "
 const roles_const_1 = __webpack_require__(/*! src/shared/constants/roles.const */ "./src/shared/constants/roles.const.ts");
 const email_service_1 = __webpack_require__(/*! src/shared/services/email/email.service */ "./src/shared/services/email/email.service.ts");
 const logs_service_1 = __webpack_require__(/*! src/modules/logs/logs.service */ "./src/modules/logs/logs.service.ts");
+function normalizarSegmento(input) {
+    return input
+        .toLowerCase()
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, '.')
+        .replace(/[^a-z0-9.]/g, '');
+}
+function construirAlias(nombre, apellidoPaterno) {
+    const n = normalizarSegmento(nombre);
+    const a = normalizarSegmento(apellidoPaterno);
+    if (!n || !a) {
+        throw new common_1.BadRequestException({
+            message: 'El nombre y apellido paterno deben contener caracteres válidos.',
+        });
+    }
+    return `${n}.${a}`;
+}
 let AuthService = class AuthService {
     usuariosAuthService;
     usuariosService;
@@ -909,21 +1073,131 @@ let AuthService = class AuthService {
             this.usuariosService.findOneByCorreo(data.correo, { throwException: false }),
         ]);
         if (existeUsuario) {
-            throw new common_1.ConflictException({ message: 'El usuario ingresado ya se encuentra registrado.' });
+            throw new common_1.ConflictException({
+                message: 'El usuario ingresado ya se encuentra registrado.',
+            });
         }
         if (existeCorreo) {
-            throw new common_1.ConflictException({ message: 'Ya existe un usuario con el mismo correo.' });
+            throw new common_1.ConflictException({
+                message: 'Ya existe un usuario con el mismo correo.',
+            });
         }
         return this.usuariosAuthService.create({
             ...data,
             idRol: data.idRol ?? roles_const_1.Rol.VISITANTE,
         });
     }
+    async registerPublic(data, ipOrigen) {
+        const aliasBase = construirAlias(data.nombre, data.apellidoPaterno);
+        const colision = await this.usuariosService.findByUsuario(aliasBase, {
+            throwException: false,
+        });
+        if (colision) {
+            await this.logsService.registroFallido({
+                aliasIntentado: aliasBase,
+                correoIntentado: data.correo,
+                ipOrigen,
+                motivo: 'ALIAS_DUPLICADO',
+            });
+            throw new common_1.ConflictException({
+                message: 'No se pudo crear el usuario con esos datos. Verifica tu información o contacta a soporte.',
+            });
+        }
+        const correoExistente = await this.usuariosService.findByAnyEmail(data.correo);
+        if (correoExistente) {
+            await this.logsService.registroFallido({
+                aliasIntentado: aliasBase,
+                correoIntentado: data.correo,
+                ipOrigen,
+                motivo: 'CORREO_DUPLICADO',
+            });
+            throw new common_1.ConflictException({
+                message: 'No se pudo crear el usuario con esos datos. Verifica tu información o contacta a soporte.',
+            });
+        }
+        const rawVerificationToken = crypto.randomBytes(32).toString('hex');
+        const verificationTokenHash = crypto
+            .createHash('sha256')
+            .update(rawVerificationToken)
+            .digest('hex');
+        const apellidoCompleto = data.apellidoMaterno
+            ? `${data.apellidoPaterno} ${data.apellidoMaterno}`.trim()
+            : data.apellidoPaterno.trim();
+        const usuarioCreado = await this.usuariosAuthService.create({
+            usuario: aliasBase,
+            correo: data.correo,
+            correoReal: data.correo,
+            nombre: data.nombre.trim(),
+            apellido: apellidoCompleto,
+            contrasenia: data.contrasenia,
+            idRol: roles_const_1.Rol.VISITANTE,
+            isEmailVerified: false,
+            emailVerificationToken: verificationTokenHash,
+        });
+        const frontendUrl = (this.configService.get('FRONTEND_URL') ||
+            'https://orbis-seguridad.vercel.app')
+            .split(',')[0]
+            .trim()
+            .replace(/\/$/, '');
+        const verifyUrl = `${frontendUrl}/verify-email?token=${rawVerificationToken}`;
+        this.emailService.enviarVerificacionEmail(data.correo, verifyUrl);
+        await this.logsService.registroVisitante({
+            idUsuario: usuarioCreado.id,
+            nombreUsuario: aliasBase,
+            ipOrigen,
+        });
+        return {
+            message: 'Registro recibido. Te enviamos un correo para verificar tu cuenta antes de iniciar sesión.',
+            aliasGenerado: `${aliasBase}@orbis.com`,
+        };
+    }
+    async verifyEmail(rawToken, ipOrigen) {
+        if (!rawToken || typeof rawToken !== 'string' || rawToken.length < 32) {
+            await this.logsService.verificacionEmailFallida({
+                ipOrigen,
+                motivo: 'TOKEN_MALFORMADO',
+            });
+            throw new common_1.BadRequestException({
+                message: 'El enlace de verificación no es válido o ya expiró.',
+            });
+        }
+        const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+        const usuario = await this.usuariosService.findByVerificationToken(tokenHash);
+        if (!usuario) {
+            await this.logsService.verificacionEmailFallida({
+                ipOrigen,
+                motivo: 'TOKEN_NO_ENCONTRADO',
+            });
+            throw new common_1.BadRequestException({
+                message: 'El enlace de verificación no es válido o ya expiró.',
+            });
+        }
+        if (usuario.isEmailVerified) {
+            await this.usuariosService.limpiarTokenVerificacion(usuario.id);
+            return {
+                message: 'Tu correo ya estaba verificado. Ya puedes iniciar sesión.',
+            };
+        }
+        await this.usuariosService.marcarEmailVerificado(usuario.id);
+        await this.logsService.verificacionEmailExitosa({
+            idUsuario: usuario.id,
+            nombreUsuario: usuario.usuario,
+            ipOrigen,
+        });
+        return {
+            message: 'Correo verificado correctamente. Ya puedes iniciar sesión.',
+        };
+    }
     async login(data, ipOrigen) {
         const MAX_ATTEMPTS = this.configService.get('MAX_LOGIN_ATTEMPTS', 3);
         const LOCKOUT_MINUTES = this.configService.get('LOCKOUT_MINUTES', 30);
-        const alias = data.usuario.toLowerCase().replace(/@orbis\.com$/i, '').trim();
-        const usuario = await this.usuariosService.findByUsuario(alias, { throwException: false });
+        const alias = data.usuario
+            .toLowerCase()
+            .replace(/@orbis\.com$/i, '')
+            .trim();
+        const usuario = await this.usuariosService.findByUsuario(alias, {
+            throwException: false,
+        });
         if (!usuario) {
             await this.logsService.loginFallido({
                 nombreUsuario: alias,
@@ -992,7 +1266,9 @@ let AuthService = class AuthService {
             await this.usuariosService.incrementarIntentos(usuario.id, 0);
         }
         let mustChangePassword = usuario.mustChangePassword ?? false;
-        if (!mustChangePassword && usuario.passwordExpiresAt && new Date() > usuario.passwordExpiresAt) {
+        if (!mustChangePassword &&
+            usuario.passwordExpiresAt &&
+            new Date() > usuario.passwordExpiresAt) {
             mustChangePassword = true;
             await this.usuariosService.marcarPasswordExpirado(usuario.id);
         }
@@ -1021,7 +1297,11 @@ let AuthService = class AuthService {
     }
     async solicitarResetPassword(correo, ipOrigen) {
         const RESET_MINUTES = this.configService.get('RESET_TOKEN_EXPIRES_MINUTES', 30);
-        const frontendUrl = (this.configService.get('FRONTEND_URL') || 'https://orbis-seguridad.vercel.app').split(',')[0].trim().replace(/\/$/, '');
+        const frontendUrl = (this.configService.get('FRONTEND_URL') ||
+            'https://orbis-seguridad.vercel.app')
+            .split(',')[0]
+            .trim()
+            .replace(/\/$/, '');
         const usuario = await this.usuariosService.findByAnyEmail(correo);
         if (!usuario)
             return;
@@ -1049,7 +1329,9 @@ let AuthService = class AuthService {
     async confirmarResetPassword(token, passwordNuevo, ipOrigen) {
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
         const usuario = await this.usuariosService.findByResetToken(tokenHash);
-        if (!usuario || !usuario.resetTokenExpires || new Date() > usuario.resetTokenExpires) {
+        if (!usuario ||
+            !usuario.resetTokenExpires ||
+            new Date() > usuario.resetTokenExpires) {
             throw new common_1.BadRequestException({ message: 'Token inválido o expirado.' });
         }
         await this.usuariosService.resetearPassword(usuario.id, passwordNuevo);
@@ -15805,6 +16087,10 @@ var AccionLog;
     AccionLog["USUARIO_MODIFICADO"] = "USUARIO_MODIFICADO";
     AccionLog["USUARIO_ELIMINADO"] = "USUARIO_ELIMINADO";
     AccionLog["ROL_CAMBIADO"] = "ROL_CAMBIADO";
+    AccionLog["REGISTRO_VISITANTE"] = "REGISTRO_VISITANTE";
+    AccionLog["REGISTRO_FALLIDO"] = "REGISTRO_FALLIDO";
+    AccionLog["EMAIL_VERIFICADO"] = "EMAIL_VERIFICADO";
+    AccionLog["EMAIL_VERIFICACION_FAIL"] = "EMAIL_VERIFICACION_FAIL";
     AccionLog["EMPRESA_CREADA"] = "EMPRESA_CREADA";
     AccionLog["EMPRESA_MODIFICADA"] = "EMPRESA_MODIFICADA";
     AccionLog["EMPRESA_ELIMINADA"] = "EMPRESA_ELIMINADA";
@@ -16134,6 +16420,8 @@ const SEVERIDAD_POR_ACCION = {
     [log_entity_1.AccionLog.ACCESO_DENEGADO]: 'ALTO',
     [log_entity_1.AccionLog.CUENTA_DESBLOQUEADA]: 'MEDIO',
     [log_entity_1.AccionLog.RESET_PASSWORD_SOLICIT]: 'MEDIO',
+    [log_entity_1.AccionLog.REGISTRO_FALLIDO]: 'MEDIO',
+    [log_entity_1.AccionLog.EMAIL_VERIFICACION_FAIL]: 'MEDIO',
 };
 function calcularSeveridad(accion) {
     return SEVERIDAD_POR_ACCION[accion] ?? 'BAJO';
@@ -16237,6 +16525,43 @@ let LogsService = LogsService_1 = class LogsService {
             },
         });
     }
+    async registroVisitante(params) {
+        await this.registrar(log_entity_1.TipoLog.SEGURIDAD, log_entity_1.AccionLog.REGISTRO_VISITANTE, {
+            idUsuario: params.idUsuario,
+            nombreUsuario: params.nombreUsuario,
+            ipOrigen: params.ipOrigen,
+            exitoso: true,
+        });
+    }
+    async registroFallido(params) {
+        await this.registrar(log_entity_1.TipoLog.SEGURIDAD, log_entity_1.AccionLog.REGISTRO_FALLIDO, {
+            idUsuario: null,
+            nombreUsuario: params.aliasIntentado,
+            ipOrigen: params.ipOrigen,
+            exitoso: false,
+            detalles: {
+                motivo: params.motivo,
+                correoIntentado: params.correoIntentado,
+            },
+        });
+    }
+    async verificacionEmailExitosa(params) {
+        await this.registrar(log_entity_1.TipoLog.SEGURIDAD, log_entity_1.AccionLog.EMAIL_VERIFICADO, {
+            idUsuario: params.idUsuario,
+            nombreUsuario: params.nombreUsuario,
+            ipOrigen: params.ipOrigen,
+            exitoso: true,
+        });
+    }
+    async verificacionEmailFallida(params) {
+        await this.registrar(log_entity_1.TipoLog.SEGURIDAD, log_entity_1.AccionLog.EMAIL_VERIFICACION_FAIL, {
+            idUsuario: null,
+            nombreUsuario: null,
+            ipOrigen: params.ipOrigen,
+            exitoso: false,
+            detalles: { motivo: params.motivo },
+        });
+    }
     async empresaCreada(params) {
         await this.registrar(log_entity_1.TipoLog.APLICACION, log_entity_1.AccionLog.EMPRESA_CREADA, {
             idUsuario: params.idUsuario,
@@ -16282,9 +16607,7 @@ let LogsService = LogsService_1 = class LogsService {
             ipOrigen: params.ipOrigen,
             recurso: `Usuario #${params.idUsuarioAfectado} (${params.nombreUsuarioAfectado})`,
             exitoso: true,
-            detalles: {
-                camposModificados: params.camposModificados,
-            },
+            detalles: { camposModificados: params.camposModificados },
         });
     }
     async usuarioEliminado(params) {
@@ -16368,9 +16691,7 @@ let LogsService = LogsService_1 = class LogsService {
             hasta.setHours(23, 59, 59, 999);
             qb.andWhere('log.creadoEn <= :hasta', { hasta });
         }
-        qb.orderBy('log.creadoEn', 'DESC')
-            .skip(skip)
-            .take(limit);
+        qb.orderBy('log.creadoEn', 'DESC').skip(skip).take(limit);
         const [rows, total] = await qb.getManyAndCount();
         return { data: rows, total, page, limit };
     }
@@ -16402,9 +16723,7 @@ let LogsService = LogsService_1 = class LogsService {
             hasta.setHours(23, 59, 59, 999);
             qb.andWhere('log.creadoEn <= :hasta', { hasta });
         }
-        qb.orderBy('log.creadoEn', 'DESC')
-            .skip(skip)
-            .take(limit);
+        qb.orderBy('log.creadoEn', 'DESC').skip(skip).take(limit);
         const [rows, total] = await qb.getManyAndCount();
         return { data: rows, total, page, limit };
     }
@@ -16604,6 +16923,9 @@ let Riesgo = class Riesgo {
     impacto_residual;
     riesgo_residual;
     nivel_riesgo_residual;
+    usuario_id;
+    usuario_nombre;
+    ip_origen;
     created_at;
     updated_at;
 };
@@ -16681,6 +17003,18 @@ __decorate([
     __metadata("design:type", String)
 ], Riesgo.prototype, "nivel_riesgo_residual", void 0);
 __decorate([
+    (0, typeorm_1.Column)({ type: 'int', nullable: true }),
+    __metadata("design:type", Object)
+], Riesgo.prototype, "usuario_id", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', length: 100, nullable: true }),
+    __metadata("design:type", Object)
+], Riesgo.prototype, "usuario_nombre", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', length: 45, nullable: true }),
+    __metadata("design:type", Object)
+], Riesgo.prototype, "ip_origen", void 0);
+__decorate([
     (0, typeorm_1.CreateDateColumn)(),
     __metadata("design:type", typeof (_a = typeof Date !== "undefined" && Date) === "function" ? _a : Object)
 ], Riesgo.prototype, "created_at", void 0);
@@ -16714,7 +17048,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
-var _a, _b, _c, _d, _e, _f, _g;
+var _a, _b, _c, _d, _e;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.RiesgosController = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
@@ -16726,12 +17060,18 @@ const roles_const_1 = __webpack_require__(/*! src/shared/constants/roles.const *
 const riesgos_service_1 = __webpack_require__(/*! ./riesgos.service */ "./src/modules/riesgos/riesgos.service.ts");
 const create_riesgo_dto_1 = __webpack_require__(/*! ./create-riesgo.dto */ "./src/modules/riesgos/create-riesgo.dto.ts");
 const update_riesgo_dto_1 = __webpack_require__(/*! ./update-riesgo.dto */ "./src/modules/riesgos/update-riesgo.dto.ts");
-const riesgo_entity_1 = __webpack_require__(/*! ./riesgo.entity */ "./src/modules/riesgos/riesgo.entity.ts");
 function extractIp(req) {
     const forwarded = req.headers['x-forwarded-for'];
     if (typeof forwarded === 'string')
         return forwarded.split(',')[0].trim();
     return req.socket?.remoteAddress ?? 'desconocida';
+}
+function buildAuditoria(req) {
+    return {
+        idUsuario: req.user.sub,
+        nombreUsuario: req.user.usuario,
+        ipOrigen: extractIp(req),
+    };
 }
 let RiesgosController = class RiesgosController {
     riesgosService;
@@ -16739,35 +17079,27 @@ let RiesgosController = class RiesgosController {
         this.riesgosService = riesgosService;
     }
     create(dto, req) {
-        const ip = extractIp(req);
-        return this.riesgosService.create(dto);
+        return this.riesgosService.create(dto, buildAuditoria(req));
     }
-    findAll(nivel, idResponsable, fechaDesde, fechaHasta) {
+    findAll() {
         return this.riesgosService.findAll();
     }
-    async resumen() {
-        const todos = await this.riesgosService.findAll();
-        const resumen = { Bajo: 0, Moderado: 0, Alto: 0, Extremo: 0 };
-        todos.forEach(r => {
-            if (resumen[r.nivel_riesgo_inherente] !== undefined) {
-                resumen[r.nivel_riesgo_inherente]++;
-            }
-        });
-        return resumen;
+    resumen() {
+        return this.riesgosService.resumenPorNivel();
     }
     findOne(id) {
         return this.riesgosService.findOne(id);
     }
     update(id, dto, req) {
-        return this.riesgosService.update(id, dto);
+        return this.riesgosService.update(id, dto, buildAuditoria(req));
     }
-    remove(id, req) {
+    remove(id) {
         return this.riesgosService.remove(id);
     }
 };
 exports.RiesgosController = RiesgosController;
 __decorate([
-    (0, swagger_1.ApiOperation)({ summary: 'Registrar nuevo riesgo' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Registrar nuevo riesgo (registra auditoría)' }),
     (0, requiere_permisos_decorator_1.RequierePermisos)(roles_const_1.Permiso.RIESGOS_CREAR),
     (0, common_1.Post)(),
     __param(0, (0, common_1.Body)()),
@@ -16777,24 +17109,20 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], RiesgosController.prototype, "create", null);
 __decorate([
-    (0, swagger_1.ApiOperation)({ summary: 'Listar riesgos con filtros opcionales' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Listar todos los riesgos' }),
     (0, requiere_permisos_decorator_1.RequierePermisos)(roles_const_1.Permiso.RIESGOS_LEER),
     (0, common_1.Get)(),
-    __param(0, (0, common_1.Query)('nivel')),
-    __param(1, (0, common_1.Query)('idResponsable')),
-    __param(2, (0, common_1.Query)('fechaDesde')),
-    __param(3, (0, common_1.Query)('fechaHasta')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [typeof (_d = typeof riesgo_entity_1.NivelRiesgo !== "undefined" && riesgo_entity_1.NivelRiesgo) === "function" ? _d : Object, String, String, String]),
+    __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], RiesgosController.prototype, "findAll", null);
 __decorate([
-    (0, swagger_1.ApiOperation)({ summary: 'Resumen de riesgos por nivel (para dashboard)' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Resumen de riesgos residuales por nivel (dashboard)' }),
     (0, requiere_permisos_decorator_1.RequierePermisos)(roles_const_1.Permiso.RIESGOS_LEER, roles_const_1.Permiso.DASHBOARD_LEER),
     (0, common_1.Get)('resumen'),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
-    __metadata("design:returntype", Promise)
+    __metadata("design:returntype", void 0)
 ], RiesgosController.prototype, "resumen", null);
 __decorate([
     (0, swagger_1.ApiOperation)({ summary: 'Obtener detalle de un riesgo' }),
@@ -16806,24 +17134,23 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], RiesgosController.prototype, "findOne", null);
 __decorate([
-    (0, swagger_1.ApiOperation)({ summary: 'Actualizar riesgo (recalcula nivel automáticamente)' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Actualizar riesgo (recalcula nivel + registra auditoría)' }),
     (0, requiere_permisos_decorator_1.RequierePermisos)(roles_const_1.Permiso.RIESGOS_EDITAR),
     (0, common_1.Patch)(':id'),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Body)()),
     __param(2, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, typeof (_e = typeof update_riesgo_dto_1.UpdateRiesgoDto !== "undefined" && update_riesgo_dto_1.UpdateRiesgoDto) === "function" ? _e : Object, Object]),
+    __metadata("design:paramtypes", [String, typeof (_d = typeof update_riesgo_dto_1.UpdateRiesgoDto !== "undefined" && update_riesgo_dto_1.UpdateRiesgoDto) === "function" ? _d : Object, Object]),
     __metadata("design:returntype", void 0)
 ], RiesgosController.prototype, "update", null);
 __decorate([
-    (0, swagger_1.ApiOperation)({ summary: 'Eliminar riesgo (soft delete)' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Eliminar riesgo' }),
     (0, requiere_permisos_decorator_1.RequierePermisos)(roles_const_1.Permiso.RIESGOS_ELIMINAR),
     (0, common_1.Delete)(':id'),
     __param(0, (0, common_1.Param)('id')),
-    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
 ], RiesgosController.prototype, "remove", null);
 exports.RiesgosController = RiesgosController = __decorate([
@@ -16909,14 +17236,17 @@ let RiesgosService = class RiesgosService {
             return riesgo_entity_1.NivelRiesgo.MODERADO;
         if (valor >= 10 && valor <= 16)
             return riesgo_entity_1.NivelRiesgo.ALTO;
+        if (valor >= 17 && valor <= 19)
+            return riesgo_entity_1.NivelRiesgo.ALTO;
         if (valor >= 20 && valor <= 25)
             return riesgo_entity_1.NivelRiesgo.EXTREMO;
-        if (valor > 16 && valor < 20)
-            return riesgo_entity_1.NivelRiesgo.ALTO;
         throw new common_1.BadRequestException(`Valor de riesgo fuera de rango (1-25): ${valor}`);
     }
     validarRango(valor, campo) {
-        if (typeof valor !== 'number' || !Number.isInteger(valor) || valor < 1 || valor > 5) {
+        if (typeof valor !== 'number' ||
+            !Number.isInteger(valor) ||
+            valor < 1 ||
+            valor > 5) {
             throw new common_1.BadRequestException(`El campo "${campo}" debe ser un entero entre 1 y 5. Recibido: ${valor}`);
         }
     }
@@ -16937,8 +17267,13 @@ let RiesgosService = class RiesgosService {
         data.nivel_riesgo_residual = this.calcularNivelRiesgo(riesgoResidual);
         return data;
     }
-    async create(dto) {
+    async create(dto, auditoria) {
         const dataCalculada = this.aplicarCalculosDeRiesgo({ ...dto });
+        if (auditoria) {
+            dataCalculada.usuario_id = auditoria.idUsuario;
+            dataCalculada.usuario_nombre = auditoria.nombreUsuario;
+            dataCalculada.ip_origen = auditoria.ipOrigen;
+        }
         const riesgo = this.riesgoRepository.create(dataCalculada);
         return this.riesgoRepository.save(riesgo);
     }
@@ -16952,16 +17287,31 @@ let RiesgosService = class RiesgosService {
         }
         return riesgo;
     }
-    async update(id, dto) {
+    async update(id, dto, auditoria) {
         const existente = await this.findOne(id);
-        const merged = { ...existente, ...dto };
-        const dataCalculada = this.aplicarCalculosDeRiesgo(merged);
+        const dataCalculada = this.aplicarCalculosDeRiesgo({ ...existente, ...dto });
+        if (auditoria) {
+            dataCalculada.usuario_id = auditoria.idUsuario;
+            dataCalculada.usuario_nombre = auditoria.nombreUsuario;
+            dataCalculada.ip_origen = auditoria.ipOrigen;
+        }
         await this.riesgoRepository.update(id, dataCalculada);
         return this.findOne(id);
     }
     async remove(id) {
         const riesgo = await this.findOne(id);
         await this.riesgoRepository.remove(riesgo);
+    }
+    async resumenPorNivel() {
+        const resumen = {
+            [riesgo_entity_1.NivelRiesgo.BAJO]: 0,
+            [riesgo_entity_1.NivelRiesgo.MODERADO]: 0,
+            [riesgo_entity_1.NivelRiesgo.ALTO]: 0,
+            [riesgo_entity_1.NivelRiesgo.EXTREMO]: 0,
+        };
+        const todos = await this.riesgoRepository.find();
+        todos.forEach((r) => { resumen[r.nivel_riesgo_residual]++; });
+        return resumen;
     }
 };
 exports.RiesgosService = RiesgosService;
@@ -17675,6 +18025,8 @@ let Usuario = class Usuario {
     resetToken;
     resetTokenExpires;
     expiracion;
+    isEmailVerified;
+    emailVerificationToken;
     createdAt;
     updatedAt;
     deletedAt;
@@ -17686,28 +18038,28 @@ __decorate([
     __metadata("design:type", Number)
 ], Usuario.prototype, "id", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'usuario' }),
+    (0, typeorm_1.Column)({ name: 'usuario', type: 'varchar', unique: true }),
     __metadata("design:type", String)
 ], Usuario.prototype, "usuario", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'correo' }),
+    (0, typeorm_1.Column)({ name: 'correo', type: 'varchar' }),
     __metadata("design:type", String)
 ], Usuario.prototype, "correo", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'correo_real', nullable: true }),
-    __metadata("design:type", String)
+    (0, typeorm_1.Column)({ name: 'correo_real', type: 'varchar', nullable: true }),
+    __metadata("design:type", Object)
 ], Usuario.prototype, "correoReal", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'contrasenia' }),
+    (0, typeorm_1.Column)({ name: 'contrasenia', type: 'varchar' }),
     __metadata("design:type", String)
 ], Usuario.prototype, "contrasenia", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'nombre', nullable: true }),
-    __metadata("design:type", String)
+    (0, typeorm_1.Column)({ name: 'nombre', type: 'varchar', nullable: true }),
+    __metadata("design:type", Object)
 ], Usuario.prototype, "nombre", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'apellido', nullable: true }),
-    __metadata("design:type", String)
+    (0, typeorm_1.Column)({ name: 'apellido', type: 'varchar', nullable: true }),
+    __metadata("design:type", Object)
 ], Usuario.prototype, "apellido", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: 'id_rol' }),
@@ -17719,11 +18071,11 @@ __decorate([
 ], Usuario.prototype, "mustChangePassword", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: 'password_changed_at', type: 'timestamp', nullable: true }),
-    __metadata("design:type", typeof (_a = typeof Date !== "undefined" && Date) === "function" ? _a : Object)
+    __metadata("design:type", Object)
 ], Usuario.prototype, "passwordChangedAt", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: 'password_expires_at', type: 'timestamp', nullable: true }),
-    __metadata("design:type", typeof (_b = typeof Date !== "undefined" && Date) === "function" ? _b : Object)
+    __metadata("design:type", Object)
 ], Usuario.prototype, "passwordExpiresAt", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: 'is_locked', default: false }),
@@ -17735,24 +18087,36 @@ __decorate([
 ], Usuario.prototype, "failedAttempts", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: 'locked_at', type: 'timestamp', nullable: true }),
-    __metadata("design:type", typeof (_c = typeof Date !== "undefined" && Date) === "function" ? _c : Object)
+    __metadata("design:type", Object)
 ], Usuario.prototype, "lockedAt", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: 'acceso_formulario_externo', default: false }),
     __metadata("design:type", Boolean)
 ], Usuario.prototype, "accesoFormularioExterno", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'reset_token', nullable: true }),
-    __metadata("design:type", String)
+    (0, typeorm_1.Column)({ name: 'reset_token', type: 'varchar', nullable: true }),
+    __metadata("design:type", Object)
 ], Usuario.prototype, "resetToken", void 0);
 __decorate([
     (0, typeorm_1.Column)({ name: 'reset_token_expires', type: 'timestamp', nullable: true }),
-    __metadata("design:type", typeof (_d = typeof Date !== "undefined" && Date) === "function" ? _d : Object)
+    __metadata("design:type", Object)
 ], Usuario.prototype, "resetTokenExpires", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'expiracion', type: 'timestamp without time zone', nullable: true }),
-    __metadata("design:type", typeof (_e = typeof Date !== "undefined" && Date) === "function" ? _e : Object)
+    (0, typeorm_1.Column)({
+        name: 'expiracion',
+        type: 'timestamp without time zone',
+        nullable: true,
+    }),
+    __metadata("design:type", Object)
 ], Usuario.prototype, "expiracion", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'is_email_verified', default: false }),
+    __metadata("design:type", Boolean)
+], Usuario.prototype, "isEmailVerified", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ name: 'email_verification_token', type: 'varchar', nullable: true }),
+    __metadata("design:type", Object)
+], Usuario.prototype, "emailVerificationToken", void 0);
 __decorate([
     (0, typeorm_1.CreateDateColumn)({ name: 'created_at' }),
     __metadata("design:type", typeof (_f = typeof Date !== "undefined" && Date) === "function" ? _f : Object)
@@ -17763,7 +18127,7 @@ __decorate([
 ], Usuario.prototype, "updatedAt", void 0);
 __decorate([
     (0, typeorm_1.DeleteDateColumn)({ name: 'deleted_at', nullable: true }),
-    __metadata("design:type", typeof (_h = typeof Date !== "undefined" && Date) === "function" ? _h : Object)
+    __metadata("design:type", Object)
 ], Usuario.prototype, "deletedAt", void 0);
 __decorate([
     (0, typeorm_1.ManyToOne)(() => rol_entity_1.Rol, (rol) => rol.usuarios),
@@ -18097,6 +18461,18 @@ let UsuariosAuthService = class UsuariosAuthService {
         usuario.usuario = data.usuario;
         usuario.contrasenia = await (0, utils_1.hashPassword)(data.contrasenia);
         usuario.idRol = data.idRol;
+        if (data.nombre !== undefined)
+            usuario.nombre = data.nombre;
+        if (data.apellido !== undefined)
+            usuario.apellido = data.apellido;
+        if (data.correoReal !== undefined)
+            usuario.correoReal = data.correoReal;
+        if (data.isEmailVerified !== undefined) {
+            usuario.isEmailVerified = data.isEmailVerified;
+        }
+        if (data.emailVerificationToken !== undefined) {
+            usuario.emailVerificationToken = data.emailVerificationToken;
+        }
         return this.usuarioRepository.save(usuario);
     }
     async createTemporal(data, manager) {
@@ -18135,6 +18511,8 @@ let UsuariosAuthService = class UsuariosAuthService {
             mustChangePassword: true,
             passwordExpiresAt: (0, date_fns_1.addDays)(new Date(), 60),
             accesoFormularioExterno: dto.permisos?.formularioExterno ?? false,
+            isEmailVerified: false,
+            emailVerificationToken: null,
         });
         const guardado = await this.usuarioRepository.save(nuevoUsuario);
         if (idRol === 5 && dto.rubrosAsignados && dto.rubrosAsignados.length > 0) {
@@ -18277,18 +18655,19 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var UsuariosService_1;
 var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UsuariosService = exports.CambiarPasswordDto = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
 const typeorm_1 = __webpack_require__(/*! @nestjs/typeorm */ "@nestjs/typeorm");
-const usuario_entity_1 = __webpack_require__(/*! ../entities/usuario.entity */ "./src/modules/usuarios/entities/usuario.entity.ts");
 const typeorm_2 = __webpack_require__(/*! typeorm */ "typeorm");
-const classes_1 = __webpack_require__(/*! src/common/classes */ "./src/common/classes/index.ts");
-const roles_const_1 = __webpack_require__(/*! src/shared/constants/roles.const */ "./src/shared/constants/roles.const.ts");
 const class_validator_1 = __webpack_require__(/*! class-validator */ "class-validator");
 const bcrypt = __webpack_require__(/*! bcrypt */ "bcrypt");
 const date_fns_1 = __webpack_require__(/*! date-fns */ "date-fns");
+const usuario_entity_1 = __webpack_require__(/*! ../entities/usuario.entity */ "./src/modules/usuarios/entities/usuario.entity.ts");
+const classes_1 = __webpack_require__(/*! src/common/classes */ "./src/common/classes/index.ts");
+const roles_const_1 = __webpack_require__(/*! src/shared/constants/roles.const */ "./src/shared/constants/roles.const.ts");
 const password_validator_service_1 = __webpack_require__(/*! src/common/services/password-validator.service */ "./src/common/services/password-validator.service.ts");
 const password_history_service_1 = __webpack_require__(/*! ./password-history.service */ "./src/modules/usuarios/services/password-history.service.ts");
 class CambiarPasswordDto {
@@ -18306,20 +18685,18 @@ __decorate([
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", String)
 ], CambiarPasswordDto.prototype, "passwordNuevo", void 0);
-let UsuariosService = class UsuariosService {
+let UsuariosService = UsuariosService_1 = class UsuariosService {
     usuarioRepository;
     passwordValidator;
     passwordHistoryService;
+    logger = new common_1.Logger(UsuariosService_1.name);
     constructor(usuarioRepository, passwordValidator, passwordHistoryService) {
         this.usuarioRepository = usuarioRepository;
         this.passwordValidator = passwordValidator;
         this.passwordHistoryService = passwordHistoryService;
     }
-    create(createUsuarioDto) {
-        return 'This action adds a new usuario';
-    }
     async findAll() {
-        const usuario = await this.usuarioRepository.find({
+        return this.usuarioRepository.find({
             select: {
                 id: true,
                 usuario: true,
@@ -18330,57 +18707,43 @@ let UsuariosService = class UsuariosService {
                 isLocked: true,
                 failedAttempts: true,
                 expiracion: true,
+                isEmailVerified: true,
             },
-            where: {
-                idRol: (0, typeorm_2.Not)(1)
-            }
+            where: { idRol: (0, typeorm_2.Not)(roles_const_1.RolesEnum.SUPERADMIN) },
         });
-        return usuario;
     }
     async findByUsuario(usuario, options) {
         const finalOptions = new classes_1.OptionsFindOne();
-        if (options) {
+        if (options)
             Object.assign(finalOptions, options);
-        }
-        const repo = !finalOptions.manager ? this.usuarioRepository : finalOptions.manager.getRepository(usuario_entity_1.Usuario);
-        const u = await repo.findOne({
-            where: {
-                usuario: usuario,
-            },
-        });
+        const repo = finalOptions.manager
+            ? finalOptions.manager.getRepository(usuario_entity_1.Usuario)
+            : this.usuarioRepository;
+        const u = await repo.findOne({ where: { usuario } });
         if (!u && finalOptions.throwException) {
-            throw new common_1.NotFoundException({
-                message: 'Usuario no encontrado',
-            });
+            throw new common_1.NotFoundException({ message: 'Usuario no encontrado' });
         }
         return u;
     }
     async findOne(id, options) {
         const finalOptions = new classes_1.OptionsFindOne();
-        if (options) {
+        if (options)
             Object.assign(finalOptions, options);
-        }
-        const repo = !finalOptions.manager ? this.usuarioRepository : finalOptions.manager.getRepository(usuario_entity_1.Usuario);
-        const u = await repo.findOne({
-            where: {
-                id: id,
-            },
-        });
+        const repo = finalOptions.manager
+            ? finalOptions.manager.getRepository(usuario_entity_1.Usuario)
+            : this.usuarioRepository;
+        const u = await repo.findOne({ where: { id } });
         if (!u) {
             if (finalOptions.throwException) {
-                throw new common_1.NotFoundException({
-                    message: 'Usuario no encontrado',
-                });
+                throw new common_1.NotFoundException({ message: 'Usuario no encontrado' });
             }
             return null;
         }
         if (u.idRol === roles_const_1.RolesEnum.TEMPORAL &&
             u.expiracion &&
-            u.expiracion.getTime() <= new Date().getTime()) {
+            u.expiracion.getTime() <= Date.now()) {
             if (finalOptions.throwException) {
-                throw new common_1.NotFoundException({
-                    message: 'Usuario no encontrado',
-                });
+                throw new common_1.NotFoundException({ message: 'Usuario no encontrado' });
             }
             return null;
         }
@@ -18390,6 +18753,8 @@ let UsuariosService = class UsuariosService {
         const usuario = await this.usuarioRepository.findOneBy({ id: idUsuario });
         if (!usuario)
             throw new common_1.NotFoundException('Usuario no encontrado');
+        const aplicaSoftValidation = usuario.mustChangePassword === true &&
+            usuario.isEmailVerified === false;
         if (!usuario.mustChangePassword) {
             if (!dto.passwordActual) {
                 throw new common_1.BadRequestException('La contraseña actual es requerida');
@@ -18409,8 +18774,51 @@ let UsuariosService = class UsuariosService {
             passwordChangedAt: new Date(),
             passwordExpiresAt: (0, date_fns_1.addDays)(new Date(), 60),
             failedAttempts: 0,
-            resetToken: undefined,
-            resetTokenExpires: undefined,
+            resetToken: null,
+            resetTokenExpires: null,
+            ...(aplicaSoftValidation && {
+                isEmailVerified: true,
+                emailVerificationToken: null,
+            }),
+        });
+        if (aplicaSoftValidation) {
+            this.logger.log(`Soft Validation aplicada: usuario ${idUsuario} verificado por cambio de clave temporal.`);
+        }
+    }
+    async resetearPassword(id, passwordNuevo) {
+        const usuario = await this.usuarioRepository.findOneBy({ id });
+        if (!usuario)
+            throw new common_1.NotFoundException('Usuario no encontrado');
+        this.passwordValidator.validar(passwordNuevo);
+        await this.passwordHistoryService.verificarReutilizacion(id, passwordNuevo);
+        const nuevoHash = await bcrypt.hash(passwordNuevo, 12);
+        await this.passwordHistoryService.guardarEnHistorial(id, nuevoHash);
+        await this.usuarioRepository.update(id, {
+            contrasenia: nuevoHash,
+            mustChangePassword: false,
+            passwordChangedAt: new Date(),
+            passwordExpiresAt: (0, date_fns_1.addDays)(new Date(), 60),
+            failedAttempts: 0,
+            isLocked: false,
+            lockedAt: null,
+            resetToken: null,
+            resetTokenExpires: null,
+        });
+    }
+    async findByVerificationToken(tokenHash) {
+        return this.usuarioRepository.findOne({
+            where: { emailVerificationToken: tokenHash },
+        });
+    }
+    async marcarEmailVerificado(id) {
+        await this.usuarioRepository.update(id, {
+            isEmailVerified: true,
+            emailVerificationToken: null,
+        });
+    }
+    async limpiarTokenVerificacion(id) {
+        await this.usuarioRepository.update(id, {
+            emailVerificationToken: null,
         });
     }
     async restaurar(id) {
@@ -18437,37 +18845,32 @@ let UsuariosService = class UsuariosService {
     }
     async findOneByCorreo(correo, options) {
         const finalOptions = new classes_1.OptionsFindOne();
-        if (options) {
+        if (options)
             Object.assign(finalOptions, options);
-        }
-        const repo = !finalOptions.manager ? this.usuarioRepository : finalOptions.manager.getRepository(usuario_entity_1.Usuario);
-        const u = await repo.findOne({
-            where: {
-                correo: correo,
-            },
-        });
+        const repo = finalOptions.manager
+            ? finalOptions.manager.getRepository(usuario_entity_1.Usuario)
+            : this.usuarioRepository;
+        const u = await repo.findOne({ where: { correo } });
         if (!u) {
             if (finalOptions.throwException) {
-                throw new common_1.NotFoundException({
-                    message: 'Usuario no encontrado',
-                });
+                throw new common_1.NotFoundException({ message: 'Usuario no encontrado' });
             }
             return null;
         }
         if (u.idRol === roles_const_1.RolesEnum.TEMPORAL &&
             u.expiracion &&
-            u.expiracion.getTime() <= new Date().getTime()) {
+            u.expiracion.getTime() <= Date.now()) {
             if (finalOptions.throwException) {
-                throw new common_1.NotFoundException({
-                    message: 'Usuario no encontrado',
-                });
+                throw new common_1.NotFoundException({ message: 'Usuario no encontrado' });
             }
             return null;
         }
         return u;
     }
     async findByAnyEmail(email) {
-        const byReal = await this.usuarioRepository.findOne({ where: { correoReal: email } });
+        const byReal = await this.usuarioRepository.findOne({
+            where: { correoReal: email },
+        });
         if (byReal)
             return byReal;
         return this.usuarioRepository.findOne({ where: { correo: email } });
@@ -18481,28 +18884,7 @@ let UsuariosService = class UsuariosService {
     async findByResetToken(tokenHash) {
         return this.usuarioRepository.findOne({ where: { resetToken: tokenHash } });
     }
-    async resetearPassword(id, passwordNuevo) {
-        const usuario = await this.usuarioRepository.findOneBy({ id });
-        if (!usuario)
-            throw new common_1.NotFoundException('Usuario no encontrado');
-        this.passwordValidator.validar(passwordNuevo);
-        await this.passwordHistoryService.verificarReutilizacion(id, passwordNuevo);
-        const nuevoHash = await bcrypt.hash(passwordNuevo, 12);
-        await this.passwordHistoryService.guardarEnHistorial(id, nuevoHash);
-        await this.usuarioRepository.update(id, {
-            contrasenia: nuevoHash,
-            mustChangePassword: false,
-            passwordChangedAt: new Date(),
-            passwordExpiresAt: (0, date_fns_1.addDays)(new Date(), 60),
-            failedAttempts: 0,
-            isLocked: false,
-            lockedAt: null,
-            resetToken: null,
-            resetTokenExpires: null,
-        });
-    }
     async obtenerRubrosPorUsuario(idUsuario) {
-        console.log(`Buscando rubros permitidos en BD para el usuario ID: ${idUsuario}`);
         try {
             const resultados = await this.usuarioRepository.query(`
                 SELECT r.nombre_rubro
@@ -18510,18 +18892,16 @@ let UsuariosService = class UsuariosService {
                 INNER JOIN rubros r ON ir.id_rubro = r.id_rubro
                 WHERE ir.id_usuario = $1
                 `, [idUsuario]);
-            const rubrosPermitidos = resultados.map((fila) => fila.nombre_rubro);
-            console.log(`Rubros encontrados para usuario ${idUsuario}:`, rubrosPermitidos);
-            return rubrosPermitidos;
+            return resultados.map((fila) => fila.nombre_rubro);
         }
         catch (error) {
-            console.error('Error en BD al obtener rubros del investigador:', error);
+            this.logger.error(`Error en BD al obtener rubros del investigador ${idUsuario}`, error instanceof Error ? error.stack : String(error));
             return [];
         }
     }
 };
 exports.UsuariosService = UsuariosService;
-exports.UsuariosService = UsuariosService = __decorate([
+exports.UsuariosService = UsuariosService = UsuariosService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(usuario_entity_1.Usuario)),
     __metadata("design:paramtypes", [typeof (_a = typeof typeorm_2.Repository !== "undefined" && typeorm_2.Repository) === "function" ? _a : Object, typeof (_b = typeof password_validator_service_1.PasswordValidatorService !== "undefined" && password_validator_service_1.PasswordValidatorService) === "function" ? _b : Object, typeof (_c = typeof password_history_service_1.PasswordHistoryService !== "undefined" && password_history_service_1.PasswordHistoryService) === "function" ? _c : Object])
@@ -19097,15 +19477,14 @@ let EmailService = class EmailService {
     }
     async sendEmailAsync(options) {
         try {
-            const { to, subject, text, html, attachments, template, context } = options;
             await this.mailerService.sendMail({
-                to,
-                subject,
-                text,
-                html,
-                template,
-                context,
-                attachments: attachments?.map((att) => ({
+                to: options.to,
+                subject: options.subject,
+                text: options.text,
+                html: options.html,
+                template: options.template,
+                context: options.context,
+                attachments: options.attachments?.map((att) => ({
                     filename: att.filename,
                     content: att.content,
                     contentType: att.contentType,
@@ -19113,7 +19492,7 @@ let EmailService = class EmailService {
             });
         }
         catch (error) {
-            console.error('[EmailService] Error al enviar correo:', error?.message ?? error);
+            console.error('[EmailService] Error al enviar correo:', error instanceof Error ? error.message : error);
         }
     }
     async sendEmail(options) {
@@ -19121,19 +19500,55 @@ let EmailService = class EmailService {
             this.sendEmailAsync(options);
         });
     }
+    async enviarVerificacionEmail(correo, verifyUrl) {
+        await this.sendEmail({
+            to: correo,
+            subject: 'Orbis — Verifica tu correo electrónico',
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #072D42;">Confirma tu correo para activar tu cuenta</h2>
+                    <p>Gracias por registrarte en <strong>Orbis Seguridad</strong>.</p>
+                    <p>Para completar tu registro y poder iniciar sesión, haz clic en el botón de abajo.
+                       El enlace es válido por <strong>24 horas</strong>.</p>
+                    <div style="text-align: center; margin: 28px 0;">
+                        <a href="${verifyUrl}"
+                           style="background: #F29E38; color: #ffffff; padding: 13px 28px;
+                                  border-radius: 6px; text-decoration: none;
+                                  font-weight: bold; font-size: 15px;">
+                            Verificar mi correo
+                        </a>
+                    </div>
+                    <p style="color: #555555; font-size: 14px;">
+                        Si el botón no funciona, copia y pega este enlace en tu navegador:
+                    </p>
+                    <p style="word-break: break-all; font-size: 13px; color: #072D42;">
+                        ${verifyUrl}
+                    </p>
+                    <hr style="margin: 24px 0; border: none; border-top: 1px solid #eeeeee;" />
+                    <p style="color: #9298A6; font-size: 12px;">
+                        Si no creaste una cuenta en Orbis, puedes ignorar este correo con seguridad.
+                        Tu dirección no será utilizada.
+                    </p>
+                </div>
+            `,
+        });
+    }
     async enviarCuentaBloqueada(correo, usuario) {
         await this.sendEmail({
             to: correo,
             subject: 'Orbis — Tu cuenta ha sido bloqueada',
             html: `
-				<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-					<h2 style="color: #c0392b;">Cuenta bloqueada temporalmente</h2>
-					<p>Hola <strong>${usuario}</strong>,</p>
-					<p>Tu cuenta fue bloqueada por múltiples intentos de inicio de sesión fallidos.</p>
-					<p>Podrás intentar nuevamente después del período de bloqueo, o contactar a un administrador para desbloquearla de inmediato.</p>
-					<p style="color: #7f8c8d; font-size: 12px;">Si no fuiste tú, cambia tu contraseña en cuanto puedas acceder.</p>
-				</div>
-			`,
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #c0392b;">Cuenta bloqueada temporalmente</h2>
+                    <p>Hola <strong>${usuario}</strong>,</p>
+                    <p>Tu cuenta fue bloqueada por múltiples intentos de inicio de sesión fallidos.</p>
+                    <p>Podrás intentar nuevamente después del período de bloqueo, o contactar a un
+                       administrador para desbloquearla de inmediato.</p>
+                    <p style="color: #7f8c8d; font-size: 12px;">
+                        Si no fuiste tú, cambia tu contraseña en cuanto puedas acceder.
+                    </p>
+                </div>
+            `,
         });
     }
     async enviarResetPassword(correo, resetUrl, expiresInMinutes) {
@@ -19141,18 +19556,23 @@ let EmailService = class EmailService {
             to: correo,
             subject: 'Orbis — Recuperación de contraseña',
             html: `
-				<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-					<h2 style="color: #1a1a2e;">Restablecer contraseña</h2>
-					<p>Recibimos una solicitud para restablecer la contraseña de tu cuenta.</p>
-					<p>Haz clic en el siguiente botón para crear una nueva contraseña. El enlace expirará en <strong>${expiresInMinutes} minutos</strong>.</p>
-					<div style="text-align: center; margin: 24px 0;">
-						<a href="${resetUrl}" style="background: #F29E38; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
-							Restablecer contraseña
-						</a>
-					</div>
-					<p style="color: #7f8c8d; font-size: 12px;">Si no solicitaste esto, ignora este correo. Tu contraseña no cambiará.</p>
-				</div>
-			`,
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #1a1a2e;">Restablecer contraseña</h2>
+                    <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta.</p>
+                    <p>Haz clic en el siguiente botón para crear una nueva contraseña.
+                       El enlace expirará en <strong>${expiresInMinutes} minutos</strong>.</p>
+                    <div style="text-align: center; margin: 24px 0;">
+                        <a href="${resetUrl}"
+                           style="background: #F29E38; color: #fff; padding: 12px 24px;
+                                  border-radius: 6px; text-decoration: none; font-weight: bold;">
+                            Restablecer contraseña
+                        </a>
+                    </div>
+                    <p style="color: #7f8c8d; font-size: 12px;">
+                        Si no solicitaste esto, ignora este correo. Tu contraseña no cambiará.
+                    </p>
+                </div>
+            `,
         });
     }
     async enviarPasswordCambiada(correo) {
@@ -19160,12 +19580,12 @@ let EmailService = class EmailService {
             to: correo,
             subject: 'Orbis — Tu contraseña fue cambiada',
             html: `
-				<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-					<h2 style="color: #27ae60;">Contraseña actualizada</h2>
-					<p>Tu contraseña fue cambiada exitosamente.</p>
-					<p>Si no realizaste este cambio, contacta inmediatamente a un administrador.</p>
-				</div>
-			`,
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #27ae60;">Contraseña actualizada</h2>
+                    <p>Tu contraseña fue cambiada exitosamente.</p>
+                    <p>Si no realizaste este cambio, contacta inmediatamente a un administrador.</p>
+                </div>
+            `,
         });
     }
     async enviarPasswordExpirada(correo, usuario) {
@@ -19173,13 +19593,14 @@ let EmailService = class EmailService {
             to: correo,
             subject: 'Orbis — Tu contraseña ha expirado',
             html: `
-				<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-					<h2 style="color: #e67e22;">Contraseña expirada</h2>
-					<p>Hola <strong>${usuario}</strong>,</p>
-					<p>Tu contraseña ha expirado. Deberás crear una nueva contraseña la próxima vez que inicies sesión.</p>
-					<p>El sistema te redirigirá automáticamente al formulario de cambio de contraseña.</p>
-				</div>
-			`,
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #e67e22;">Contraseña expirada</h2>
+                    <p>Hola <strong>${usuario}</strong>,</p>
+                    <p>Tu contraseña ha expirado. Deberás crear una nueva contraseña la próxima vez
+                       que inicies sesión.</p>
+                    <p>El sistema te redirigirá automáticamente al formulario de cambio de contraseña.</p>
+                </div>
+            `,
         });
     }
     async enviarAccesoFormularioExterno(correoReal, alias, pwd, formularioUrl) {
@@ -19187,27 +19608,31 @@ let EmailService = class EmailService {
             to: correoReal,
             subject: 'Orbis — Tu cuenta y acceso al formulario de empresas',
             html: `
-				<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-					<h2 style="color: #1a1a2e;">Bienvenido a Orbis</h2>
-					<p>Tu cuenta ha sido creada. Tus credenciales de acceso son:</p>
-					<div style="background: #f4f4f4; padding: 16px; border-radius: 8px; margin: 16px 0;">
-						<p><strong>Usuario:</strong> ${alias}@orbis.com</p>
-						<p><strong>Contraseña temporal:</strong>
-						   <code style="font-size: 16px; color: #e74c3c;">${pwd}</code></p>
-					</div>
-					<p>⚠️ <strong>Esta contraseña es temporal.</strong> Al ingresar, serás redirigido a cambiarla.</p>
-					<hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
-					<h3 style="color: #0f2c4a;">Acceso al formulario de registro de empresas</h3>
-					<p>También tienes acceso al formulario externo de registro de empresas:</p>
-					<div style="text-align: center; margin: 20px 0;">
-						<a href="${formularioUrl}"
-						   style="background: #F29E38; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold;">
-							Abrir formulario de empresas
-						</a>
-					</div>
-					<p style="color: #7f8c8d; font-size: 12px;">Este correo es confidencial. No lo compartas con nadie.</p>
-				</div>
-			`,
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #1a1a2e;">Bienvenido a Orbis</h2>
+                    <p>Tu cuenta ha sido creada. Tus credenciales de acceso son:</p>
+                    <div style="background: #f4f4f4; padding: 16px; border-radius: 8px; margin: 16px 0;">
+                        <p><strong>Usuario:</strong> ${alias}@orbis.com</p>
+                        <p><strong>Contraseña temporal:</strong>
+                           <code style="font-size: 16px; color: #e74c3c;">${pwd}</code></p>
+                    </div>
+                    <p>⚠️ <strong>Esta contraseña es temporal.</strong>
+                       Al ingresar, serás redirigido a cambiarla.</p>
+                    <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
+                    <h3 style="color: #0f2c4a;">Acceso al formulario de registro de empresas</h3>
+                    <p>También tienes acceso al formulario externo de registro de empresas:</p>
+                    <div style="text-align: center; margin: 20px 0;">
+                        <a href="${formularioUrl}"
+                           style="background: #F29E38; color: #fff; padding: 12px 24px;
+                                  border-radius: 6px; text-decoration: none; font-weight: bold;">
+                            Abrir formulario de empresas
+                        </a>
+                    </div>
+                    <p style="color: #7f8c8d; font-size: 12px;">
+                        Este correo es confidencial. No lo compartas con nadie.
+                    </p>
+                </div>
+            `,
         });
     }
     async enviarPasswordTemporal(correoReal, alias, pwd) {
@@ -19215,18 +19640,19 @@ let EmailService = class EmailService {
             to: correoReal,
             subject: 'Orbis — Tu cuenta ha sido creada',
             html: `
-				<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-					<h2 style="color: #1a1a2e;">Bienvenido a Orbis</h2>
-					<p>Tu cuenta ha sido creada. Tus credenciales de acceso son:</p>
-					<div style="background: #f4f4f4; padding: 16px; border-radius: 8px; margin: 16px 0;">
-						<p><strong>Usuario:</strong> ${alias}@orbis.com</p>
-						<p><strong>Contraseña temporal:</strong>
-						   <code style="font-size: 16px; color: #e74c3c;">${pwd}</code></p>
-					</div>
-					<p>⚠️ <strong>Esta contraseña es temporal.</strong> Al ingresar, serás redirigido a cambiarla.</p>
-					<p>Este correo es confidencial. No lo compartas con nadie.</p>
-				</div>
-			`,
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #1a1a2e;">Bienvenido a Orbis</h2>
+                    <p>Tu cuenta ha sido creada. Tus credenciales de acceso son:</p>
+                    <div style="background: #f4f4f4; padding: 16px; border-radius: 8px; margin: 16px 0;">
+                        <p><strong>Usuario:</strong> ${alias}@orbis.com</p>
+                        <p><strong>Contraseña temporal:</strong>
+                           <code style="font-size: 16px; color: #e74c3c;">${pwd}</code></p>
+                    </div>
+                    <p>⚠️ <strong>Esta contraseña es temporal.</strong>
+                       Al ingresar, serás redirigido a cambiarla.</p>
+                    <p>Este correo es confidencial. No lo compartas con nadie.</p>
+                </div>
+            `,
         });
     }
 };
