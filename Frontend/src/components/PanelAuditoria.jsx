@@ -16,7 +16,8 @@ import {
   Edit3, Trash2, PlusCircle, Eye, Download, RefreshCw,
   ChevronLeft, ChevronRight, Monitor, Globe, Clock,
   Search, Filter, X, ArrowRight, AlertCircle, Key,
-  Building2, Users, Cpu,
+  Building2, Users, Cpu, Minimize2, Layers, HeartHandshake,
+  UserCog, FlaskConical,
 } from 'lucide-react';
 import {
   getLogsSeguridad,
@@ -327,9 +328,9 @@ function ModalDetalle({ log, tipo, onClose }) {
                 { label: 'Usuario',        value: log.nombreUsuario ?? '—',     icon: <Users size={14} /> },
                 { label: 'Fecha y hora',   value: formatearFecha(log.creadoEn),  icon: <Clock size={14} /> },
                 { label: 'Dirección IP',   value: log.ipOrigen ?? '—',          icon: <Globe size={14} /> },
-                // Cambia la línea de severidad por esto:
-                { label: 'Severidad', value: esSeg ? (tradSeg?.severidad ?? '—') : 'N/A (Aplicación)', icon: <AlertTriangle size={14} /> },
-                  
+                { label: 'Severidad',
+                  value: esSeg ? tradSeg?.severidad ?? '—' : '—',
+                  icon: <AlertTriangle size={14} /> },
                 { label: 'Entidad / Módulo',
                   value: log.recurso ?? (esSeg ? 'Seguridad' : '—'),
                   icon: <Cpu size={14} /> },
@@ -574,6 +575,239 @@ function Paginacion({ page, total, limit, onChange }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// SECCIÓN 5b: Panel de las 5 Reglas de Oro del Diseño Seguro
+// ─────────────────────────────────────────────────────────────
+
+const REGLAS_DE_ORO = [
+  {
+    numero: '01',
+    titulo: 'Minimizar',
+    subtitulo: 'Minimización de la Superficie de Ataque',
+    icono: <Minimize2 size={20} />,
+    color: { accent: '#185FA5', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500', num: 'text-blue-200' },
+    concepto: 'Un sistema seguro debe exponer la menor cantidad de puntos de contacto posibles al exterior. Mientras menos endpoints o puertos estén públicos, menos vectores tiene un atacante.',
+    implementaciones: [
+      {
+        label: 'Helmet middleware',
+        detalle: 'Se eliminan cabeceras de divulgación tecnológica como X-Powered-By: Express. El atacante no puede auditar exploits específicos porque desconoce el stack.',
+      },
+      {
+        label: 'API 90% cerrada',
+        detalle: 'Todos los endpoints REST están protegidos por JwtGuard y RolesGuard. Solo login y registro de visitantes son públicos; el resto exige autenticación criptográfica obligatoria.',
+      },
+    ],
+    modulos: ['Helmet', 'JwtGuard', 'RolesGuard', 'AuthModule'],
+  },
+  {
+    numero: '02',
+    titulo: 'Simplificar',
+    subtitulo: 'Simplicidad Arquitectónica',
+    icono: <Layers size={20} />,
+    color: { accent: '#0F6E56', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', dot: 'bg-emerald-500', num: 'text-emerald-200' },
+    concepto: '"La complejidad es el enemigo mortal de la seguridad." Un diseño modular y limpio es fácil de auditar. El código espagueti camufla brechas de seguridad.',
+    implementaciones: [
+      {
+        label: 'Arquitectura modular NestJS',
+        detalle: 'Backend estructurado en módulos independientes (AuthModule, UsuariosModule, EmpresasModule, LogsModule, RiesgosModule) con responsabilidad única e inyección de dependencias limpia.',
+      },
+      {
+        label: 'Consumo limpio en React',
+        detalle: 'El frontend consume la API mediante un servicio centralizado (api.js), manteniendo los componentes de UI desacoplados de la lógica de red.',
+      },
+    ],
+    modulos: ['AuthModule', 'LogsModule', 'EmpresasModule', 'api.js'],
+  },
+  {
+    numero: '03',
+    titulo: 'Tolerancia a Errores',
+    subtitulo: 'Resiliencia y Fallo Seguro',
+    icono: <HeartHandshake size={20} />,
+    color: { accent: '#854F0B', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', dot: 'bg-amber-500', num: 'text-amber-200' },
+    concepto: 'Un sistema seguro asume que las cosas van a fallar. El objetivo es que ante un error, el sistema no colapse ni exponga datos sensibles — que "falle de forma segura" (Fail-Safe Defaults).',
+    implementaciones: [
+      {
+        label: 'Filtros de excepción globales',
+        detalle: 'Ante errores críticos de BD, el backend no expone el stack SQL crudo al cliente. Captura la excepción y devuelve un mensaje genérico sanitizado que no revela la estructura de tablas.',
+      },
+      {
+        label: 'Manejo de estados en Frontend',
+        detalle: 'Bloques try/catch con estados explícitos (CARGANDO, EXITOSO, ERROR). Si el backend no responde o el token expira, la UI muta de forma segura al estado de error con ruta de escape.',
+      },
+    ],
+    modulos: ['ExceptionFilter', 'try/catch', 'VerifyEmailPage', 'ErrorBoundary'],
+  },
+  {
+    numero: '04',
+    titulo: 'Factor Humano',
+    subtitulo: 'Principio de Menos Asombro / UX Segura',
+    icono: <UserCog size={20} />,
+    color: { accent: '#6D28D9', bg: 'bg-violet-50', text: 'text-violet-700', border: 'border-violet-200', dot: 'bg-violet-500', num: 'text-violet-200' },
+    concepto: 'El usuario es el eslabón más débil. Si los mecanismos de protección son complejos, la gente los evade. El sistema debe guiar a actuar de forma segura sin frustrar al usuario.',
+    implementaciones: [
+      {
+        label: 'Alias autogenerado',
+        detalle: 'RRHH ingresa Nombre y Apellido; el sistema calcula en tiempo real el alias corporativo (nombre.apellido@orbis.com) para que ningún colaborador olvide su credencial.',
+      },
+      {
+        label: 'Contraseña temporal forzada',
+        detalle: 'Al crear un usuario, se envía un token criptográfico único por correo. Al hacer clic, la UI guía paso a paso al usuario a establecer su contraseña definitiva desde el primer día.',
+      },
+    ],
+    modulos: ['buildBaseAlias', 'EmailService', 'mustChangePassword', 'FlujoOnboarding'],
+  },
+  {
+    numero: '05',
+    titulo: 'Pruebas y Calidad',
+    subtitulo: 'Verificación Continua',
+    icono: <FlaskConical size={20} />,
+    color: { accent: '#B91C1C', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-500', num: 'text-red-200' },
+    concepto: 'No puedes afirmar que un sistema es seguro si no has intentado atacarlo activamente. La seguridad es un proceso de verificación constante mediante pruebas de calidad.',
+    implementaciones: [
+      {
+        label: 'Auditoría DAST con OWASP ZAP',
+        detalle: 'Se sometió la plataforma a una auditoría dinámica de caja negra en entorno Staging, lanzando miles de peticiones automatizadas para descubrir vulnerabilidades activas antes del despliegue.',
+      },
+      {
+        label: 'Validación en tiempo de compilación',
+        detalle: 'TypeScript estricto en el backend actúa como prueba de calidad continua, previniendo desbordamientos de memoria y asignaciones inválidas antes de generar el build de producción.',
+      },
+    ],
+    modulos: ['OWASP ZAP', 'TypeScript strict', 'class-validator', 'ValidationPipe'],
+  },
+];
+
+function ReglasDeOroPanel() {
+  const [reglaExpandida, setReglaExpandida] = useState(null);
+
+  return (
+    <div>
+      <p className="text-sm text-gray-500 mb-5">
+        Principios de diseño seguro aplicados activamente en la arquitectura de Orbis-Seguridad.
+        Haz clic en una regla para ver su implementación técnica detallada.
+      </p>
+
+      <div className="flex flex-col gap-3">
+        {REGLAS_DE_ORO.map((regla) => {
+          const abierta = reglaExpandida === regla.numero;
+          const c = regla.color;
+
+          return (
+            <div
+              key={regla.numero}
+              className={`border rounded-xl overflow-hidden transition-all duration-200 ${c.border} ${abierta ? 'shadow-sm' : ''}`}
+            >
+              {/* Cabecera siempre visible — clickeable */}
+              <button
+                onClick={() => setReglaExpandida(abierta ? null : regla.numero)}
+                className={`w-full flex items-center gap-4 px-4 py-3.5 text-left transition-colors ${abierta ? c.bg : 'bg-white hover:bg-gray-50/60'}`}
+              >
+                {/* Número grande decorativo */}
+                <span
+                  className={`font-black text-3xl leading-none select-none shrink-0 w-10 text-right ${abierta ? c.num : 'text-gray-100'}`}
+                  aria-hidden="true"
+                >
+                  {regla.numero}
+                </span>
+
+                {/* Icono */}
+                <div
+                  className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors ${abierta ? 'bg-white shadow-sm' : c.bg}`}
+                  style={{ color: c.accent }}
+                >
+                  {regla.icono}
+                </div>
+
+                {/* Textos */}
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-semibold leading-snug ${abierta ? c.text : 'text-gray-800'}`}>
+                    {regla.titulo}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">{regla.subtitulo}</p>
+                </div>
+
+                {/* Módulos en cabecera (solo cuando cerrado) */}
+                {!abierta && (
+                  <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+                    {regla.modulos.slice(0, 3).map((m) => (
+                      <span key={m} className="text-xs px-2 py-0.5 rounded-md bg-gray-100 text-gray-500 border border-gray-200 font-mono">
+                        {m}
+                      </span>
+                    ))}
+                    {regla.modulos.length > 3 && (
+                      <span className="text-xs text-gray-400">+{regla.modulos.length - 3}</span>
+                    )}
+                  </div>
+                )}
+
+                {/* Chevron */}
+                <ChevronLeft
+                  size={16}
+                  className={`shrink-0 transition-transform duration-200 text-gray-400 ${abierta ? '-rotate-90' : 'rotate-180'}`}
+                  aria-hidden="true"
+                />
+              </button>
+
+              {/* Contenido expandido */}
+              {abierta && (
+                <div className={`px-4 pb-4 pt-1 ${c.bg} border-t ${c.border}`}>
+                  {/* Concepto */}
+                  <p className="text-xs text-gray-600 leading-relaxed mb-4 pl-14">
+                    {regla.concepto}
+                  </p>
+
+                  {/* Implementaciones */}
+                  <div className="pl-14 flex flex-col gap-3 mb-4">
+                    {regla.implementaciones.map((impl, i) => (
+                      <div key={i} className="flex items-start gap-3">
+                        <div
+                          className="mt-1 w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: c.accent }}
+                        >
+                          <CheckCircle size={10} className="text-white" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-gray-800 mb-0.5">{impl.label}</p>
+                          <p className="text-xs text-gray-500 leading-relaxed">{impl.detalle}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Módulos afectados */}
+                  <div className="pl-14">
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Módulos / componentes</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {regla.modulos.map((m) => (
+                        <span
+                          key={m}
+                          className="text-xs px-2 py-0.5 rounded-md border font-mono"
+                          style={{ color: c.accent, borderColor: c.accent + '40', backgroundColor: c.accent + '0D' }}
+                        >
+                          {m}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Nota al pie */}
+      <div className="mt-5 flex items-start gap-2 bg-gray-50 rounded-xl px-4 py-3 border border-gray-100">
+        <Info size={14} className="text-blue-400 mt-0.5 shrink-0" />
+        <p className="text-xs text-gray-500 leading-relaxed">
+          Estas reglas complementan el mapeo del <span className="font-medium text-gray-700">OWASP Top 10</span> visible en la pestaña de Logs de Seguridad.
+          Su implementación conjunta define la postura de seguridad de Orbis-Seguridad.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // SECCIÓN 6: Tabla de logs de seguridad
 // ─────────────────────────────────────────────────────────────
 
@@ -730,17 +964,18 @@ function TablaLogsAplicacion({ logs, onVerDetalle }) {
                 <td className="px-2 py-3 font-mono text-xs text-gray-500">
                   {log.entidadId ?? '—'}
                 </td>
-                
                 <td className="px-2 py-3">
-                 {log.detalles?.camposModificados?.length > 0 ? (
+                  {camposCount > 0 ? (
                     <Badge color="warning">
-                 <Edit3 size={11} />
-                    {log.detalles.camposModificados.length} campo{log.detalles.camposModificados.length > 1 ? 's' : ''}
-                </Badge>
-                 ) : (
-               <Badge color="success"><PlusCircle size={11} /> Registro</Badge>
-                    )}
-                    </td>
+                      <Edit3 size={11} />
+                      {camposCount} campo{camposCount > 1 ? 's' : ''}
+                    </Badge>
+                  ) : tieneDespues ? (
+                    <Badge color="success"><PlusCircle size={11} /> Nuevo</Badge>
+                  ) : (
+                    <span className="text-xs text-gray-300">—</span>
+                  )}
+                </td>
                 <td className="px-2 py-3">
                   <button
                     onClick={(e) => { e.stopPropagation(); onVerDetalle(log); }}
@@ -775,12 +1010,13 @@ export default function PanelAuditoria({ loggedInUser }) {
 
   const tabsDisponibles = useMemo(() => {
     const tabs = [];
-    if (puedeVerSeguridad)  tabs.push({ id: 'seguridad',  label: 'Logs de seguridad',   icon: <Shield size={15} /> });
+    tabs.push({ id: 'reglas', label: '5 Reglas de Oro', icon: <Shield size={15} /> });
+    if (puedeVerSeguridad)  tabs.push({ id: 'seguridad',  label: 'Logs de seguridad',   icon: <Lock size={15} /> });
     if (puedeVerAplicacion) tabs.push({ id: 'aplicacion', label: 'Logs de aplicación',  icon: <FileText size={15} /> });
     return tabs;
   }, [puedeVerSeguridad, puedeVerAplicacion]);
 
-  const [tabActiva, setTabActiva] = useState(() => tabsDisponibles[0]?.id ?? 'seguridad');
+  const [tabActiva, setTabActiva] = useState('reglas');
 
   // Estado de datos
   const [logsSeg,   setLogsSeg]   = useState([]);
@@ -955,6 +1191,8 @@ export default function PanelAuditoria({ loggedInUser }) {
 
       {/* Contenido de la pestaña activa */}
       <div className="bg-white border border-gray-100 rounded-2xl p-5">
+        {tabActiva === 'reglas' && <ReglasDeOroPanel />}
+
         {tabActiva === 'seguridad' && puedeVerSeguridad && (
           <>
             <div className="mb-4">
