@@ -1208,10 +1208,15 @@ export default function PanelAuditoria({ loggedInUser }) {
                 <span className="text-sm">Cargando registros…</span>
               </div>
             ) : (
-              <TablaLogsSeguridad
-                logs={logsSeg}
-                onVerDetalle={(log) => abrirModal(log, 'seguridad')}
-              />
+              <>
+                <p className="text-xs text-amber-600 mb-3 block md:hidden font-medium bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                  👉 Desliza la tabla hacia la derecha para ver columnas ocultas (Usuario, Fecha, Operación, etc.).
+                </p>
+                <TablaLogsSeguridad
+                  logs={logsSeg}
+                  onVerDetalle={(log) => abrirModal(log, 'seguridad')}
+                />
+              </>
             )}
             {!cargando && (
               <Paginacion
@@ -1239,10 +1244,15 @@ export default function PanelAuditoria({ loggedInUser }) {
                 <span className="text-sm">Cargando registros…</span>
               </div>
             ) : (
-              <TablaLogsAplicacion
-                logs={logsApp}
-                onVerDetalle={(log) => abrirModal(log, 'aplicacion')}
-              />
+              <>
+                <p className="text-xs text-amber-600 mb-3 block md:hidden font-medium bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                  👉 Desliza la tabla hacia la derecha para ver columnas ocultas (Usuario, Fecha, Operación, etc.).
+                </p>
+                <TablaLogsAplicacion
+                  logs={logsApp}
+                  onVerDetalle={(log) => abrirModal(log, 'aplicacion')}
+                />
+              </>
             )}
             {!cargando && (
               <Paginacion

@@ -64,8 +64,6 @@ export class UsuariosService {
                 expiracion: true,
                 isEmailVerified: true, // [NUEVO] útil para el panel admin
             },
-            // Escudo: no exponer Superadmins en listados
-            where: { idRol: Not(RolesEnum.SUPERADMIN) },
         });
     }
 
