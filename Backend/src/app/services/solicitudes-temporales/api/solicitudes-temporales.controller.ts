@@ -13,8 +13,10 @@ import {
 	UsePipes,
 	ValidationPipe,
 } from '@nestjs/common';
-import { AuthRolesGuard } from 'src/app/services/auth/guards/auth-roles.guard';
-import { Rol } from 'src/shared/constants/roles.const';
+import { AuthRolesGuard as JwtGuard } from 'src/app/services/auth/guards/auth-roles.guard';
+import { PermisosGuard } from 'src/app/services/auth/permisos.guard';
+import { RequierePermisos } from 'src/shared/decorators/requiere-permisos.decorator';
+import { Permiso } from 'src/shared/constants/roles.const';
 import { Response } from 'express';
 import { SolicitudesTemporalesService } from '../services/solicitudes-temporales.service';
 import { CreateSolicitudTemporalDto } from '../dto/create-solicitud-temporal.dto';
@@ -61,7 +63,8 @@ export class SolicitudesTemporalesController {
 	}
 
 	@Get()
-	@UseGuards(AuthRolesGuard([Rol.ADMIN_RRHH]))
+	@UseGuards(JwtGuard([]), PermisosGuard)
+	@RequierePermisos(Permiso.USUARIOS_CREAR)
 	@ApiOperation({
 		summary: 'Api para listar todas las solicitudes temporales',
 	})
@@ -81,7 +84,8 @@ export class SolicitudesTemporalesController {
 	}
 
 	@Get(':id')
-	@UseGuards(AuthRolesGuard([Rol.ADMIN_RRHH]))
+	@UseGuards(JwtGuard([]), PermisosGuard)
+	@RequierePermisos(Permiso.USUARIOS_CREAR)
 	@ApiOperation({
 		summary: 'Obtener una solicitud temporal por ID',
 	})
@@ -99,7 +103,8 @@ export class SolicitudesTemporalesController {
 	}
 
 	@Put('aprobar/:idSolicitud')
-	@UseGuards(AuthRolesGuard([Rol.ADMIN_RRHH]))
+	@UseGuards(JwtGuard([]), PermisosGuard)
+	@RequierePermisos(Permiso.USUARIOS_CREAR)
 	@ApiOperation({
 		summary: 'Api para aprobar uns solicitud'
 	})
@@ -117,7 +122,8 @@ export class SolicitudesTemporalesController {
 	}
 
 	@Put('rechazar/:idSolicitud')
-	@UseGuards(AuthRolesGuard([Rol.ADMIN_RRHH]))
+	@UseGuards(JwtGuard([]), PermisosGuard)
+	@RequierePermisos(Permiso.USUARIOS_CREAR)
 	@ApiOperation({
 		summary: 'Api para rechazar solicitud'
 	})

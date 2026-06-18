@@ -16,25 +16,30 @@ const Navbar = ({ loggedInUser, isMobileMenuOpen, toggleMobileMenu }) => {
   let finalLinks = [...baseLinks];
   
   if (loggedInUser) {
-    const idRol = loggedInUser.idRol;
+    const userPerms = loggedInUser.permisos || [];
     
-    // Panel de usuarios para SUPERADMIN y ADMIN_RRHH
-    if ([1, 2].includes(idRol)) {
+    // Panel de usuarios
+    if (userPerms.includes('usuarios:leer')) {
       finalLinks.push({ label: "ADMIN USUARIOS", path: "/panel-usuarios" });
     }
+
+    // Gestión de Roles y Permisos
+    if (userPerms.includes('roles:gestionar')) {
+      finalLinks.push({ label: "ADMIN ROLES", path: "/panel-roles" });
+    }
     
-    // Logs de auditoría (Seguridad y Aplicación) para roles admin
-    if ([1, 2, 3].includes(idRol)) {
+    // Logs de auditoría
+    if (userPerms.includes('logs:leer')) {
       finalLinks.push({ label: "AUDITORÍA", path: "/auditoria" });
     }
     
-    // Panel visual OWASP solo para roles top (OSI/RRHH)
-    if ([1, 2].includes(idRol)) {
+    // Panel visual OWASP
+    if (userPerms.includes('dashboard:leer')) {
       finalLinks.push({ label: "OWASP & CIA", path: "/compliance" });
     }
 
-    // Módulo de Análisis de Riesgos de Seguridad de Información
-    if ([1, 2, 3].includes(idRol)) {
+    // Módulo de Análisis de Riesgos
+    if (userPerms.includes('riesgos:leer')) {
       finalLinks.push({ label: "RIESGOS SI", path: "/riesgos" });
     }
   }

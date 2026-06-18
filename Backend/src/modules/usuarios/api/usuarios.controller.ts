@@ -12,8 +12,10 @@ import {
     Put,
     UseGuards,
 } from '@nestjs/common';
-import { AuthRolesGuard } from 'src/app/services/auth/guards/auth-roles.guard';
-import { Rol, ROLES_ADMIN_SISTEMA } from 'src/shared/constants/roles.const';
+import { AuthRolesGuard as JwtGuard } from 'src/app/services/auth/guards/auth-roles.guard';
+import { PermisosGuard } from 'src/app/services/auth/permisos.guard';
+import { RequierePermisos } from 'src/shared/decorators/requiere-permisos.decorator';
+import { Permiso } from 'src/shared/constants/roles.const';
 import { Response } from 'express';
 import { CreatedRes, OkRes, SwaggerBadRequestCommon, SwaggerConflictCommon, SwaggerNotFoundCommon } from 'src/common/utils';
 import { UsuariosService, CambiarPasswordDto } from '../services/usuarios.service';
@@ -43,7 +45,8 @@ export class UsuariosController {
     }
 
     @Get()
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.USUARIOS_LEER)
     @ApiOperation({ summary: 'Api para obtener los usuarios (solo admins)' })
     @ApiOkResponse({ description: 'Respuesta en caso de obtener usuarios', type: FindAllUsuariosDto })
     async findAll(@Res() res: Response) {
@@ -52,7 +55,8 @@ export class UsuariosController {
     }
 
     @Post()
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.USUARIOS_CREAR)
     @ApiOperation({ summary: 'Api para crear un usuario con alias @orbis.com (solo admins)' })
     @ApiCreatedResponse({ description: 'Usuario creado y credenciales enviadas por correo', type: CommonResponseDto })
     @ApiBadRequestResponse(SwaggerBadRequestCommon())
@@ -65,15 +69,7 @@ export class UsuariosController {
     }
 
     @Patch('cambiar-password')
-    @UseGuards(AuthRolesGuard([
-        Rol.SUPERADMIN, 
-        Rol.ADMIN_RRHH, 
-        Rol.ADMIN_EMPRESAS, 
-        Rol.INVESTIGADOR_SENIOR, 
-        Rol.INVESTIGADOR_JUNIOR, 
-        Rol.TEMPORAL, 
-        Rol.VISITANTE
-    ]))
+    @UseGuards(JwtGuard([]))
     @ApiOperation({ summary: 'Api para que el usuario autenticado cambie su propia contraseña' })
     @ApiOkResponse({ description: 'Contraseña actualizada exitosamente', type: CommonResponseDto })
     @ApiBadRequestResponse(SwaggerBadRequestCommon())
@@ -83,7 +79,8 @@ export class UsuariosController {
     }
 
     @Put(':id')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.USUARIOS_EDITAR)
     @ApiOperation({ summary: 'Api para actualizar información de un usuario (solo admins)' })
     @ApiOkResponse({ description: 'Respuesta en caso de actualizar el usuario', type: CommonResponseDto })
     @ApiBadRequestResponse(SwaggerBadRequestCommon())
@@ -102,7 +99,8 @@ export class UsuariosController {
     }
 
     @Patch(':id/desbloquear')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.USUARIOS_BLOQUEAR)
     @ApiOperation({ summary: 'Api para desbloquear la cuenta de un usuario (solo admins)' })
     @ApiOkResponse({ description: 'Cuenta desbloqueada exitosamente', type: CommonResponseDto })
     @ApiNotFoundResponse(SwaggerNotFoundCommon())
@@ -116,7 +114,8 @@ export class UsuariosController {
     }
 
     @Patch(':id/restaurar')
-    @UseGuards(AuthRolesGuard([Rol.SUPERADMIN]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.USUARIOS_EDITAR)
     @ApiOperation({ summary: 'Restaurar usuario desactivado (solo SUPERADMIN)' })
     @ApiOkResponse({ description: 'Usuario restaurado exitosamente', type: CommonResponseDto })
     @ApiParam({ name: 'id', description: 'Id del usuario' })
@@ -129,7 +128,8 @@ export class UsuariosController {
     }
 
     @Delete(':id')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.USUARIOS_ELIMINAR)
     @ApiOperation({ summary: 'Api para eliminar a un usuario (solo admins)' })
     @ApiOkResponse({ description: 'Respuesta en caso de eliminar un usuario', type: CommonResponseDto })
     @ApiBadRequestResponse(SwaggerBadRequestCommon())
@@ -146,7 +146,8 @@ export class UsuariosController {
     }
 
     @Get(':id/historial-passwords')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_SISTEMA as unknown as number[]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.USUARIOS_LEER)
     @ApiOperation({ summary: 'Obtener historial de fechas de cambio de contraseña (sin hashes)' })
     @ApiOkResponse({ description: 'Historial de fechas obtenido', type: CommonResponseDto })
     @ApiNotFoundResponse(SwaggerNotFoundCommon())

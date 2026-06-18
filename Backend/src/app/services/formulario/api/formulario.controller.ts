@@ -1,6 +1,8 @@
 import { Body, Controller, Post, Res, UseGuards } from "@nestjs/common";
-import { AuthRolesGuard } from "src/app/services/auth/guards/auth-roles.guard";
-import { Rol } from "src/shared/constants/roles.const";
+import { AuthRolesGuard as JwtGuard } from "src/app/services/auth/guards/auth-roles.guard";
+import { PermisosGuard } from "src/app/services/auth/permisos.guard";
+import { RequierePermisos } from "src/shared/decorators/requiere-permisos.decorator";
+import { Permiso } from "src/shared/constants/roles.const";
 import { FormularioService } from "../services/formulario.service";
 import { ApiBadRequestResponse, ApiCreatedResponse, ApiNotFoundResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { CreatedRes } from "src/common/utils";
@@ -15,7 +17,8 @@ export class FormularioController {
     constructor(private readonly formularioService: FormularioService){}
 
     @Post()
-    @UseGuards(AuthRolesGuard([Rol.ADMIN_EMPRESAS]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.EMPRESAS_CREAR)
     @ApiOperation({
         summary: 'Api para registrar la empresa mediante el formulario'
     })

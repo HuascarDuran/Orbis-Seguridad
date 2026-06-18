@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { History, ShieldCheck, Clock, ChevronUp, Shield, Users, Building2, Search, SearchCheck, CheckCircle, XCircle, FileText, ExternalLink } from 'lucide-react';
+import { History, ShieldCheck, Clock, ChevronUp, FileText, ExternalLink } from 'lucide-react';
 import API from '../services/api';
 import { getUsuarios, deleteUsuario, updateUsuario, desbloquearCuenta } from '../services/usuarioService';
+import { getRoles } from '../services/rolesService';
 
 // ─── Paleta ────────────────────────────────────────────────────────────────────
 const C = {
@@ -25,7 +26,7 @@ const container = {
 
 // ─── Roles ─────────────────────────────────────────────────────────────────────
 const ROL_NOMBRE = {
-  1: 'Superadmin',
+  1: 'Oficial de Seguridad de Información (OSI)',
   2: 'Admin RRHH',
   3: 'Admin Empresas',
   4: 'Inv. Senior',
@@ -34,86 +35,9 @@ const ROL_NOMBRE = {
   7: 'Visitante',
 };
 
-const ROL_EDIT_OPTIONS = [
-  { value: 2, label: 'Admin RRHH' },
-  { value: 3, label: 'Admin Empresas' },
-  { value: 4, label: 'Investigador Senior' },
-  { value: 5, label: 'Investigador Junior' },
-];
+// ROL_EDIT_OPTIONS removido ya que se carga dinámicamente de la base de datos
 
-// ─── Descripción de roles ──────────────────────────────────────────────────────
-const DESCRIPCION_ROLES = {
-  1: {
-    nombre: 'Superadmin',
-    descripcion: 'Control total del sistema. Acceso sin restricciones a todas las funcionalidades.',
-    icono: Shield,
-    acciones: [
-      { label: 'Gestionar todos los usuarios',       puede: true  },
-      { label: 'Crear y editar empresas',            puede: true  },
-      { label: 'Eliminar empresas y usuarios',       puede: true  },
-      { label: 'Cambiar roles de cualquier usuario', puede: true  },
-      { label: 'Acceder al formulario externo',      puede: true  },
-      { label: 'Ver historial de contraseñas',       puede: true  },
-      { label: 'Desbloquear cuentas',                puede: true  },
-    ],
-  },
-  2: {
-    nombre: 'Admin RRHH',
-    descripcion: 'Gestiona las cuentas de usuario del sistema. No tiene acceso al catálogo de empresas.',
-    icono: Users,
-    acciones: [
-      { label: 'Crear y editar usuarios',            puede: true  },
-      { label: 'Desbloquear cuentas bloqueadas',     puede: true  },
-      { label: 'Ver historial de contraseñas',       puede: true  },
-      { label: 'Asignar roles a usuarios',           puede: true  },
-      { label: 'Crear o editar empresas',            puede: false },
-      { label: 'Eliminar empresas',                  puede: false },
-      { label: 'Acceder al formulario externo',      puede: false },
-    ],
-  },
-  3: {
-    nombre: 'Admin Empresas',
-    descripcion: 'Gestiona el catálogo de empresas. No tiene acceso al panel de usuarios.',
-    icono: Building2,
-    acciones: [
-      { label: 'Crear y editar empresas',            puede: true  },
-      { label: 'Acceder al formulario externo',      puede: true  },
-      { label: 'Asignar investigadores a empresas',  puede: true  },
-      { label: 'Ver catálogo completo',              puede: true  },
-      { label: 'Gestionar cuentas de usuario',       puede: false },
-      { label: 'Desbloquear cuentas',                puede: false },
-      { label: 'Eliminar empresas',                  puede: false },
-    ],
-  },
-  4: {
-    nombre: 'Investigador Senior',
-    descripcion: 'Acceso de lectura a todas las empresas del catálogo sin restricción de rubro.',
-    icono: SearchCheck,
-    acciones: [
-      { label: 'Ver todas las empresas',             puede: true  },
-      { label: 'Ver fichas completas de empresas',   puede: true  },
-      { label: 'Filtrar por rubro, tamaño, etc.',    puede: true  },
-      { label: 'Crear o editar empresas',            puede: false },
-      { label: 'Gestionar usuarios',                 puede: false },
-      { label: 'Acceder al formulario externo',      puede: false },
-      { label: 'Eliminar contenido',                 puede: false },
-    ],
-  },
-  5: {
-    nombre: 'Investigador Junior',
-    descripcion: 'Acceso limitado. Solo puede ver empresas de los rubros que le fueron asignados.',
-    icono: Search,
-    acciones: [
-      { label: 'Ver empresas de sus rubros asignados', puede: true  },
-      { label: 'Ver fichas de empresas asignadas',     puede: true  },
-      { label: 'Ver empresas fuera de sus rubros',     puede: false },
-      { label: 'Crear o editar empresas',              puede: false },
-      { label: 'Gestionar usuarios',                   puede: false },
-      { label: 'Acceder al formulario externo',        puede: false },
-      { label: 'Eliminar contenido',                   puede: false },
-    ],
-  },
-};
+// DESCRIPCION_ROLES removido ya que la descripción de permisos se despliega de forma dinámica
 
 // ─── Estado inicial del formulario de creación ─────────────────────────────────
 const FORM_INICIAL = {
@@ -144,13 +68,7 @@ const generarAliasPreview = (nombre, apellidoPaterno) => {
   return `${n(nombre)}.${n(apellidoPaterno)}`;
 };
 
-// ─── Helper: resumen rol admin ────────────────────────────────────────────────
-const resumenRolAdmin = (permisos) => {
-  if (permisos.panelUsuarios && permisos.editarEmpresas) return 'Administrador completo';
-  if (permisos.panelUsuarios) return 'Admin de usuarios (RRHH)';
-  if (permisos.editarEmpresas || permisos.formularioExterno) return 'Admin de empresas';
-  return null;
-};
+// resumenRolAdmin removido ya que los roles son dinámicos
 
 // ─── Toast ─────────────────────────────────────────────────────────────────────
 const Toast = ({ toasts }) => (
@@ -218,46 +136,7 @@ const formatearFechaHistorial = (fechaISO) => {
   });
 };
 
-// ─── Tarjeta de descripción de rol ────────────────────────────────────────────
-function TarjetaRol({ idRol }) {
-  const info = DESCRIPCION_ROLES[idRol];
-  if (!info) return null;
-  const Icono = info.icono;
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
-      transition={{ duration: 0.18 }}
-      className="mt-3 border border-gray-200 rounded-xl bg-white p-4"
-    >
-      <div className="flex items-center gap-3 mb-3">
-        <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-          <Icono size={16} className="text-gray-700" />
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-gray-900">{info.nombre}</p>
-          <p className="text-xs text-gray-500 leading-snug">{info.descripcion}</p>
-        </div>
-      </div>
-      <div className="border-t border-gray-100 mb-3" />
-      <div className="space-y-1.5">
-        {info.acciones.map((accion, i) => (
-          <div key={i} className="flex items-center gap-2">
-            {accion.puede ? (
-              <CheckCircle size={13} className="text-gray-600 flex-shrink-0" />
-            ) : (
-              <XCircle size={13} className="text-gray-300 flex-shrink-0" />
-            )}
-            <span className={`text-xs ${accion.puede ? 'text-gray-700' : 'text-gray-400'}`}>
-              {accion.label}
-            </span>
-          </div>
-        ))}
-      </div>
-    </motion.div>
-  );
-}
+// TarjetaRol removido
 
 // ─── Accesos rápidos ───────────────────────────────────────────────────────────
 const ACCESOS_RAPIDOS = [
@@ -330,6 +209,9 @@ const AdministrarUsuarioPanel = () => {
   const [cargando, setCargando]   = useState(false);
   const [errForm, setErrForm]     = useState([]);
 
+  // Roles dinámicos de la BD
+  const [roles, setRoles]         = useState([]);
+
   // Rubros
   const [rubros,         setRubros]         = useState([]);
   const [cargandoRubros, setCargandoRubros] = useState(false);
@@ -365,7 +247,19 @@ const AdministrarUsuarioPanel = () => {
     }
   }, []);
 
-  useEffect(() => { cargarUsuarios(); }, [cargarUsuarios]);
+  const cargarRoles = useCallback(async () => {
+    try {
+      const data = await getRoles();
+      setRoles(data);
+    } catch (e) {
+      console.error('Error al cargar roles:', e);
+    }
+  }, []);
+
+  useEffect(() => { 
+    cargarUsuarios(); 
+    cargarRoles();
+  }, [cargarUsuarios, cargarRoles]);
 
   // ─── Cargar rubros cuando abre modal crear ─────────────────────────────────
   useEffect(() => {
@@ -380,11 +274,6 @@ const AdministrarUsuarioPanel = () => {
   // ─── Helpers de estado del formulario ─────────────────────────────────────
   const setField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
 
-  const setPermiso = (key, value) =>
-    setForm((prev) => ({
-      ...prev,
-      permisos: { ...prev.permisos, [key]: value },
-    }));
 
   const toggleRubro = (id) => {
     setForm((prev) => {
@@ -523,6 +412,10 @@ const AdministrarUsuarioPanel = () => {
   const aliasPreview = form.nombre && form.apellidoPaterno
     ? generarAliasPreview(form.nombre, form.apellidoPaterno)
     : null;
+
+  // ─── Check restriction by permission ─────────────────────────────────────────
+  const selectedRoleObj = roles.find((r) => r.id === Number(form.idRol));
+  const tieneRestriccionRubro = selectedRoleObj?.permisos?.some((p) => p.nombre === 'empresas:leer_restringido') || false;
 
   // ─── Rol del usuario logueado (para accesos rápidos) ─────────────────────────
   const rolUsuarioLogueado = (() => {
@@ -842,112 +735,26 @@ const AdministrarUsuarioPanel = () => {
                 )}
               </AnimatePresence>
 
-              {/* ── CU-03: Tipo de usuario ── */}
+              {/* Selector de Rol */}
               <div className="mb-4">
-                <label className="block text-xs font-bodoni font-semibold text-gray-700 mb-2">
-                  Tipo de usuario <span className="text-red-500">*</span>
+                <label className="block text-xs font-bodoni font-semibold text-gray-700 mb-1">
+                  Rol del Colaborador <span className="text-red-500">*</span>
                 </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { key: 'admin', icon: '🛡️', label: 'Administrador', desc: 'Gestiona usuarios o empresas' },
-                    { key: 'investigador', icon: '🔍', label: 'Investigador', desc: 'Accede a empresas por rubro' },
-                  ].map(({ key, icon, label, desc }) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setForm((p) => ({
-                        ...p,
-                        tipoRol: key,
-                        rubrosAsignados: key === 'admin' ? [] : p.rubrosAsignados,
-                        permisos: key === 'investigador'
-                          ? { panelUsuarios: false, editarEmpresas: false, formularioExterno: false }
-                          : p.permisos,
-                      }))}
-                      className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${
-                        form.tipoRol === key
-                          ? 'border-gray-800 bg-gray-50'
-                          : 'border-gray-200 hover:border-gray-400'
-                      }`}
-                    >
-                      <span className="text-2xl">{icon}</span>
-                      <span className="text-sm font-bodoni font-semibold text-gray-800">{label}</span>
-                      <span className="text-xs text-gray-400 text-center font-miles">{desc}</span>
-                    </button>
+                <select
+                  value={form.idRol}
+                  onChange={(e) => setField('idRol', e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 font-miles bg-white"
+                >
+                  <option value="">-- Seleccionar Rol --</option>
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.nombre}</option>
                   ))}
-                </div>
+                </select>
               </div>
 
-              {/* ── CU-04: Permisos admin ── */}
+              {/* Checklist de rubros si tiene permiso de lectura restringido */}
               <AnimatePresence>
-                {form.tipoRol === 'admin' && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mb-4 bg-gray-50 rounded-xl p-4 border border-gray-200"
-                  >
-                    <p className="text-xs font-bodoni font-semibold text-gray-700 mb-3">
-                      Accesos del administrador
-                    </p>
-                    <div className="space-y-3">
-                      {[
-                        {
-                          key: 'panelUsuarios',
-                          label: 'Panel de usuarios',
-                          desc: 'Puede crear, editar y desbloquear cuentas',
-                        },
-                        {
-                          key: 'editarEmpresas',
-                          label: 'Panel de empresas',
-                          desc: 'Puede crear, editar y eliminar empresas del catálogo',
-                        },
-                        {
-                          key: 'formularioExterno',
-                          label: 'Formulario de registro de empresas',
-                          desc: 'Acceso a orbis-empresarial.vercel.app',
-                        },
-                      ].map(({ key, label, desc }) => (
-                        <label key={key} className="flex items-start gap-3 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={form.permisos[key]}
-                            onChange={(e) => setPermiso(key, e.target.checked)}
-                            className="mt-0.5 w-4 h-4 rounded border-gray-300"
-                          />
-                          <div>
-                            <p className="text-sm font-miles text-gray-800">{label}</p>
-                            <p className="text-xs text-gray-500 font-miles">{desc}</p>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-
-                    {!form.permisos.panelUsuarios && !form.permisos.editarEmpresas && !form.permisos.formularioExterno && (
-                      <p className="text-xs text-amber-600 mt-3 font-miles">
-                        ⚠ Debes seleccionar al menos un acceso
-                      </p>
-                    )}
-
-                    {resumenRolAdmin(form.permisos) && (
-                      <div className="mt-3 pt-3 border-t border-gray-200">
-                        <p className="text-xs text-gray-500 font-miles">Rol que se asignará:</p>
-                        <p className="text-sm font-bodoni font-semibold text-gray-800 mt-0.5">
-                          {resumenRolAdmin(form.permisos)}
-                        </p>
-                        {form.permisos.formularioExterno && (
-                          <p className="text-xs text-blue-600 font-miles mt-1">
-                            🔗 También tendrá acceso al formulario externo de empresas
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* ── CU-05: Rubros investigador ── */}
-              <AnimatePresence>
-                {form.tipoRol === 'investigador' && (
+                {tieneRestriccionRubro && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
@@ -956,7 +763,7 @@ const AdministrarUsuarioPanel = () => {
                   >
                     <div className="flex items-center justify-between mb-3">
                       <p className="text-xs font-bodoni font-semibold text-gray-700">
-                        Rubros que puede ver
+                        Rubros que puede ver (Acceso Restringido)
                       </p>
                       <button
                         type="button"
@@ -998,19 +805,6 @@ const AdministrarUsuarioPanel = () => {
                         })}
                       </div>
                     )}
-
-                    <div className="mt-3 pt-3 border-t border-gray-200">
-                      {form.rubrosAsignados.length === 0 || form.rubrosAsignados.length === rubros.length ? (
-                        <p className="text-xs text-gray-500 font-miles">
-                          🔍 <strong>Investigador Senior</strong> — verá todas las empresas
-                        </p>
-                      ) : (
-                        <p className="text-xs text-gray-500 font-miles">
-                          🔍 <strong>Investigador Junior</strong> — verá empresas de{' '}
-                          <strong>{form.rubrosAsignados.length}</strong> rubro(s)
-                        </p>
-                      )}
-                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -1046,7 +840,7 @@ const AdministrarUsuarioPanel = () => {
 
               {/* Resumen final */}
               <AnimatePresence>
-                {form.correoReal && aliasPreview && form.tipoRol && (
+                {form.correoReal && aliasPreview && form.idRol && (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -1137,13 +931,21 @@ const AdministrarUsuarioPanel = () => {
                   onChange={(e) => setEditRol(Number(e.target.value))}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 font-miles bg-white"
                 >
-                  {ROL_EDIT_OPTIONS.map((r) => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.nombre}</option>
                   ))}
                 </select>
-                <AnimatePresence mode="wait">
-                  <TarjetaRol key={editRol} idRol={editRol} />
-                </AnimatePresence>
+
+                <div className="mt-3 bg-gray-50 border border-gray-200 rounded-xl p-3">
+                  <p className="text-xs font-semibold text-gray-700 mb-1.5 font-miles">Permisos del Rol:</p>
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                    {roles.find(r => r.id === editRol)?.permisos?.map((p) => (
+                      <span key={p.id} className="text-[10px] px-2 py-0.5 rounded bg-white border border-gray-200 text-gray-600 font-mono">
+                        {p.nombre}
+                      </span>
+                    )) ?? <span className="text-xs text-gray-400 font-miles">Ninguno</span>}
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-3">

@@ -32,7 +32,7 @@ export async function exportarRiesgosAExcel(riesgos, nombreArchivo = 'Matriz_Rie
   });
 
   // === FILA 1: Título principal ===
-  sheet.mergeCells('A1:Q1');
+  sheet.mergeCells('A1:O1');
   const titulo = sheet.getCell('A1');
   titulo.value = 'MATRIZ DE ANÁLISIS DE RIESGOS DE SEGURIDAD DE LA INFORMACIÓN';
   titulo.font = { bold: true, size: 14, color: { argb: COLOR_TEXTO_BLANCO } };
@@ -41,7 +41,6 @@ export async function exportarRiesgosAExcel(riesgos, nombreArchivo = 'Matriz_Rie
   sheet.getRow(1).height = 28;
 
   // === FILA 2: Encabezados de GRUPO (merged) ===
-  // Definición: [celdaInicio, celdaFin, texto]
   const grupos = [
     ['A2', 'B2', 'Activo de Información'],
     ['C2', 'C2', 'Identificación'],
@@ -51,7 +50,7 @@ export async function exportarRiesgosAExcel(riesgos, nombreArchivo = 'Matriz_Rie
     ['I2', 'I2', 'Medición'],
     ['J2', 'J2', 'Mitigación'],
     ['K2', 'M2', 'Eficiencia del Control'],
-    ['N2', 'Q2', 'Riesgo Residual'],
+    ['N2', 'O2', 'Riesgo Residual'],
   ];
 
   grupos.forEach(([ini, fin, texto]) => {
@@ -67,13 +66,13 @@ export async function exportarRiesgosAExcel(riesgos, nombreArchivo = 'Matriz_Rie
 
   // === FILA 3: Encabezados de COLUMNA ===
   const columnas = [
-    'Activo Información', 'Aplicativos / Sistemas',
+    'Activo Información', 'Tipo de Activo',
     'Amenaza / Vulnerabilidad', 'Riesgo / Consecuencia',
     'Prob. Inh.', 'Imp. Inh.',
     'Riesgo Inh.', 'Nivel Inh.',
     'Tratamiento', 'Controles a Implementar',
-    'Tipo', 'Nivel', 'Frecuencia',
-    'Prob. Res.', 'Imp. Res.', 'Riesgo Res.', 'Nivel Res.',
+    'Tipo', 'Nivel Impl.', 'Frecuencia',
+    'Riesgo Res.', 'Nivel Res.',
   ];
 
   columnas.forEach((nombre, idx) => {
@@ -87,28 +86,26 @@ export async function exportarRiesgosAExcel(riesgos, nombreArchivo = 'Matriz_Rie
   sheet.getRow(3).height = 32;
 
   // === Anchos de columna ===
-  const anchos = [25, 25, 35, 35, 10, 10, 12, 14, 15, 35, 8, 8, 12, 10, 10, 12, 14];
+  const anchos = [25, 20, 35, 35, 10, 10, 12, 14, 15, 35, 12, 15, 12, 12, 14];
   anchos.forEach((w, idx) => { sheet.getColumn(idx + 1).width = w; });
 
   // === FILAS DE DATOS ===
   riesgos.forEach((r, idx) => {
     const fila = 4 + idx;
     const valores = [
-      r.activo_informacion,
-      r.aplicativos_sistemas,
-      r.amenaza_vulnerabilidad,
+      r.activo?.nombre || '—',
+      r.activo?.tipo || '—',
+      r.amenaza?.nombre || '—',
       r.riesgo_consecuencia,
       r.probabilidad_inherente,
       r.impacto_inherente,
       r.riesgo_inherente,
       r.nivel_riesgo_inherente,
       r.tratamiento_riesgo,
-      r.controles_implementar,
-      r.tipo_control,
-      r.nivel_control,
-      r.frecuencia_control,
-      r.probabilidad_residual,
-      r.impacto_residual,
+      r.controles_implementar || '—',
+      r.tipo_control || '—',
+      r.nivel_implementacion || '—',
+      r.frecuencia_control || '—',
       r.riesgo_residual,
       r.nivel_riesgo_residual,
     ];
@@ -120,7 +117,7 @@ export async function exportarRiesgosAExcel(riesgos, nombreArchivo = 'Matriz_Rie
       cell.alignment = { vertical: 'top', wrapText: true };
 
       // Centrar columnas numéricas y de enums
-      if ([5, 6, 7, 11, 12, 13, 14, 15, 16].includes(colIdx + 1)) {
+      if ([5, 6, 7, 8, 11, 12, 13, 14, 15].includes(colIdx + 1)) {
         cell.alignment = { ...cell.alignment, horizontal: 'center' };
       }
     });
@@ -137,8 +134,8 @@ export async function exportarRiesgosAExcel(riesgos, nombreArchivo = 'Matriz_Rie
       cellNivelInh.alignment = { horizontal: 'center', vertical: 'middle' };
     }
 
-    // Pintar celdas de NIVEL RESIDUAL (columna Q = 17)
-    const cellNivelRes = sheet.getCell(fila, 17);
+    // Pintar celdas de NIVEL RESIDUAL (columna O = 15)
+    const cellNivelRes = sheet.getCell(fila, 15);
     const colorRes = COLORES_NIVEL_EXCEL[r.nivel_riesgo_residual];
     if (colorRes) {
       cellNivelRes.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: colorRes } };

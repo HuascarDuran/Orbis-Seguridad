@@ -42,6 +42,7 @@ import { LogsService } from 'src/modules/logs/logs.service';
 import { buildBaseAlias } from 'src/common/utils/alias-generator.util';
 import { addDays } from 'date-fns';
 import { InvestigadorRubro } from '../entities/investigador-rubro.entity';
+import { RolesService } from '../modules/roles/services/roles.service';
 
 // ─── Contexto de auditoría ────────────────────────────────────────────────────
 
@@ -75,6 +76,7 @@ export class UsuariosAuthService {
         private readonly usuariosService: UsuariosService,
         private readonly emailService: EmailService,
         private readonly logsService: LogsService,
+        private readonly rolesService: RolesService,
     ) {}
 
     // ─── Utilidad interna ─────────────────────────────────────────────────────
@@ -148,18 +150,11 @@ export class UsuariosAuthService {
         const tempPassword = this.generarPasswordTemporal();
         const hash         = await hashPassword(tempPassword);
 
-        let idRol: number;
-        if (dto.tipoRol === 'admin') {
-            idRol = this.calcularRolAdmin(
-                dto.permisos?.panelUsuarios     ?? false,
-                dto.permisos?.editarEmpresas    ?? false,
-                dto.permisos?.formularioExterno ?? false,
-                creadorIdRol === 1,
-            );
-        } else {
-            const esJunior = dto.rubrosAsignados && dto.rubrosAsignados.length > 0;
-            idRol = esJunior ? 5 : 4;
-        }
+        const idRol = dto.idRol;
+
+        // Comprobaciones basadas en permisos dinámicos del rol
+        const tieneRestriccion = await this.rolesService.checkRoleHasPermission(idRol, 'empresas:leer_restringido');
+        const tieneCrearEmpresas = await this.rolesService.checkRoleHasPermission(idRol, 'empresas:crear');
 
         const apellido = dto.apellidoMaterno
             ? `${dto.apellidoPaterno} ${dto.apellidoMaterno}`
@@ -175,16 +170,14 @@ export class UsuariosAuthService {
             idRol:                   idRol,
             mustChangePassword:      true,
             passwordExpiresAt:       addDays(new Date(), 60),
-            accesoFormularioExterno: dto.permisos?.formularioExterno ?? false,
-            // Usuarios creados por RRHH: correo validado de facto cuando
-            // cambien su clave temporal (Soft Validation en cambiarPassword)
+            accesoFormularioExterno: tieneCrearEmpresas,
             isEmailVerified:         false,
             emailVerificationToken:  null,
         });
 
         const guardado = await this.usuarioRepository.save(nuevoUsuario);
 
-        if (idRol === 5 && dto.rubrosAsignados && dto.rubrosAsignados.length > 0) {
+        if (tieneRestriccion && dto.rubrosAsignados && dto.rubrosAsignados.length > 0) {
             const asignaciones = dto.rubrosAsignados.map((idRubro) => ({
                 idUsuario: guardado.id,
                 idRubro,
@@ -192,7 +185,7 @@ export class UsuariosAuthService {
             await this.investigadorRubroRepository.save(asignaciones);
         }
 
-        if (dto.permisos?.formularioExterno) {
+        if (tieneCrearEmpresas) {
             await this.emailService.enviarAccesoFormularioExterno(
                 dto.correoReal,
                 alias,
@@ -287,31 +280,6 @@ export class UsuariosAuthService {
         });
 
         return true;
-    }
-
-    // ─── Helpers privados ──────────────────────────────────────────────────────
-
-    private calcularRolAdmin(
-        permisoUsuarios:          boolean,
-        permisoEmpresas:          boolean,
-        permisoFormularioExterno: boolean,
-        creadorEsSuperadmin:      boolean,
-    ): number {
-        if (permisoUsuarios && permisoEmpresas) {
-            if (!creadorEsSuperadmin) {
-                throw new ForbiddenException(
-                    'Solo un SUPERADMIN puede crear usuarios con acceso total al sistema',
-                );
-            }
-            return 1;
-        }
-        if (permisoUsuarios)          return 2;
-        if (permisoEmpresas)          return 3;
-        if (permisoFormularioExterno) return 3;
-
-        throw new BadRequestException(
-            'Un administrador debe tener al menos un acceso asignado',
-        );
     }
 
     private async generarAliasUnico(nombre: string, apellidoPaterno: string): Promise<string> {

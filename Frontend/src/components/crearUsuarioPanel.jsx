@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { crearUsuarioNuevo } from '../services/usuarioService';
 
 const ROLES = [
-  { value: 1, label: 'Superadmin' },
+  { value: 1, label: 'Oficial de Seguridad de Información (OSI)' },
   { value: 2, label: 'Admin RRHH' },
   { value: 3, label: 'Admin Empresas' },
   { value: 4, label: 'Investigador Senior' },

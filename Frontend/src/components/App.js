@@ -20,6 +20,7 @@ import { setAuthToken } from '../services/api';
 import PanelAuditoria from './PanelAuditoria';
 import SecurityComplianceDashboard from './SecurityComplianceDashboard';
 import RiesgosTable from './RiesgosTable';
+import RolesManagementPanel from './RolesManagementPanel';
 
 function RedirectDashboard() {
   useEffect(() => {
@@ -75,9 +76,11 @@ function App() {
   }, []);
 
   const loggedInUser        = authState?.user ?? null;
-  const canAccessAdmin      = loggedInUser && loggedInUser.idRol <= 3;
-  const canAccessAdminEmpresas = loggedInUser && [1, 3].includes(loggedInUser.idRol);
-  const canManageUsers      = loggedInUser && loggedInUser.idRol <= 2;
+  const userPerms           = loggedInUser?.permisos ?? [];
+  const canAccessAdmin      = loggedInUser && (userPerms.includes('usuarios:leer') || userPerms.includes('empresas:leer'));
+  const canAccessAdminEmpresas = loggedInUser && (userPerms.includes('empresas:crear') || userPerms.includes('empresas:editar'));
+  const canManageUsers      = loggedInUser && userPerms.includes('usuarios:leer');
+  const canManageRoles      = loggedInUser && userPerms.includes('roles:gestionar');
 
   return (
     <Router>
@@ -172,9 +175,22 @@ function App() {
             />
 
             <Route
+              path="/panel-roles"
+              element={
+                canManageRoles ? (
+                  <RolesManagementPanel />
+                ) : (
+                  <div className="p-12 text-center text-accent font-bold">
+                    No tienes permisos para acceder a esta página.
+                  </div>
+                )
+              }
+            />
+
+            <Route
               path="/auditoria"
               element={
-                [1, 2, 3].includes(loggedInUser?.idRol) ? (
+                loggedInUser && userPerms.includes('logs:leer') ? (
                   <PanelAuditoria loggedInUser={loggedInUser} />
                 ) : (
                   <div className="p-12 text-center text-accent font-bold">
@@ -187,7 +203,7 @@ function App() {
             <Route
               path="/compliance"
               element={
-                [1, 2].includes(loggedInUser?.idRol) ? (
+                loggedInUser && userPerms.includes('dashboard:leer') ? (
                   <SecurityComplianceDashboard />
                 ) : (
                   <div className="p-12 text-center text-accent font-bold">
@@ -200,7 +216,7 @@ function App() {
             <Route
               path="/riesgos"
               element={
-                [1, 2, 3].includes(loggedInUser?.idRol) ? (
+                loggedInUser && userPerms.includes('riesgos:leer') ? (
                   <RiesgosTable />
                 ) : (
                   <div className="p-12 text-center text-accent font-bold">

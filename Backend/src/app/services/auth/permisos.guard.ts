@@ -1,17 +1,3 @@
-/**
- * @file permisos.guard.ts
- * @description Guard granular basado en PERMISSION_MATRIX.
- *
- * OWASP A01 MITIGATION: La autorización se resuelve 100% en el servidor
- * consultando la matriz canónica, nunca confiando en datos del cliente.
- *
- * Uso en controller:
- *   @UseGuards(JwtGuard, PermisosGuard)
- *   @RequierePermisos(Permiso.EMPRESAS_EDITAR)
- *   @Patch(':id')
- *   update(...) {}
- */
-
 import {
     CanActivate,
     ExecutionContext,
@@ -20,9 +6,9 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISOS_KEY } from '../../../shared/decorators/requiere-permisos.decorator';
-import { Permiso, Rol, rolTienePermiso } from '../../../shared/constants/roles.const';
+import { Permiso } from '../../../shared/constants/roles.const';
+import { RolesService } from '../../../modules/usuarios/modules/roles/services/roles.service';
 
-/** Forma del payload inyectado por JwtStrategy en request.user */
 interface JwtPayloadUsuario {
     sub: number;
     usuario: string;
@@ -32,15 +18,17 @@ interface JwtPayloadUsuario {
 
 @Injectable()
 export class PermisosGuard implements CanActivate {
-    constructor(private readonly reflector: Reflector) {}
+    constructor(
+        private readonly reflector: Reflector,
+        private readonly rolesService: RolesService,
+    ) {}
 
-    canActivate(context: ExecutionContext): boolean {
+    async canActivate(context: ExecutionContext): Promise<boolean> {
         const permisosRequeridos = this.reflector.getAllAndOverride<Permiso[]>(
             PERMISOS_KEY,
             [context.getHandler(), context.getClass()],
         );
 
-        // Si el endpoint no exige permisos específicos, pasa el guard
         if (!permisosRequeridos || permisosRequeridos.length === 0) {
             return true;
         }
@@ -48,19 +36,24 @@ export class PermisosGuard implements CanActivate {
         const request = context.switchToHttp().getRequest<{ user: JwtPayloadUsuario }>();
         const { user } = request;
 
-        if (!user || !(user.idRol in Rol)) {
+        if (!user || !user.idRol) {
             throw new ForbiddenException('Rol no reconocido o token inválido.');
         }
 
-        const rolUsuario = user.idRol as Rol;
+        const idRol = Number(user.idRol);
+        const permisosUsuario = await this.rolesService.getPermissionsForRole(idRol);
 
-        const tieneAcceso = permisosRequeridos.every((permiso) =>
-            rolTienePermiso(rolUsuario, permiso),
-        );
+        const tieneAcceso = permisosRequeridos.every((permiso) => {
+            if (permiso === Permiso.EMPRESAS_LEER) {
+                return permisosUsuario.includes(Permiso.EMPRESAS_LEER) ||
+                       permisosUsuario.includes(Permiso.EMPRESAS_LEER_RESTRINGIDO);
+            }
+            return permisosUsuario.includes(permiso);
+        });
 
         if (!tieneAcceso) {
             throw new ForbiddenException(
-                `Acceso denegado. Se requieren: [${permisosRequeridos.join(', ')}].`,
+                `Acceso denegado. Se requieren los permisos: [${permisosRequeridos.join(', ')}].`,
             );
         }
 

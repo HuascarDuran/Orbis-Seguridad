@@ -8,8 +8,10 @@ import { FindAllEmpresasCardsPaginationResponseDto } from '../dto/outputs/find-a
 import { FindOneEmpresaPublicDto } from '../dto/outputs/find-one-empresa-public.dto';
 import { FindOneEmpresaPrivateDto } from '../dto/outputs/find-one-empresa-private.dto';
 import { FindAllEmpresasCardsPublicParamsDto } from '../dto/inputs/find-all-empresas-cards-public-params.dto';
-import { AuthRolesGuard } from 'src/app/services/auth/guards/auth-roles.guard';
-import { Rol, ROLES_INVESTIGADORES, ROLES_ADMIN_EMPRESAS } from 'src/shared/constants/roles.const';
+import { AuthRolesGuard as JwtGuard } from 'src/app/services/auth/guards/auth-roles.guard';
+import { PermisosGuard } from 'src/app/services/auth/permisos.guard';
+import { RequierePermisos } from 'src/shared/decorators/requiere-permisos.decorator';
+import { Permiso } from 'src/shared/constants/roles.const';
 
 @ApiTags('Empresas')
 @Controller('api/empresas')
@@ -17,7 +19,8 @@ export class EmpresasController {
     constructor(private readonly empresasService: EmpresasService) { }
 
     @Get()
-    @UseGuards(AuthRolesGuard([Rol.ADMIN_EMPRESAS]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.EMPRESAS_LEER)
     @ApiOperation({ summary: 'Api para obtener todas las empresas con detalle completo (solo admins)' })
     async findAll(@Res() res: Response) {
         const empresas = await this.empresasService.findAll();
@@ -42,7 +45,8 @@ export class EmpresasController {
     }
 
     @Get('cards/private')
-    @UseGuards(AuthRolesGuard([...ROLES_ADMIN_EMPRESAS, ...ROLES_INVESTIGADORES]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.EMPRESAS_LEER)
     @ApiOperation({
         summary: 'Api para obtener las empresas para las cards de la pagina web, para usuario con sesion'
     })
@@ -56,8 +60,8 @@ export class EmpresasController {
         @Req() req: any,
         @Res() res: Response
     ) {
-        const userRol = req.user?.idRol || req.user?.rol;
-        const isInvestigador = ROLES_INVESTIGADORES.includes(userRol);
+        const permisosUsuario = req.user?.permisos || [];
+        const isInvestigador = permisosUsuario.includes('empresas:leer_restringido');
         const idUsuario = isInvestigador ? (req.user?.sub as number) : undefined;
 
         const empresas = await this.empresasService.findAllCardsPrivate(params, idUsuario);
@@ -82,7 +86,8 @@ export class EmpresasController {
     }
 
     @Get('private/:idEmpresa')
-    @UseGuards(AuthRolesGuard([...ROLES_ADMIN_EMPRESAS, ...ROLES_INVESTIGADORES]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.EMPRESAS_LEER)
     @ApiOperation({
         summary: 'Api paara buscar una empresa. para usuarios con sesion',
     })
@@ -96,8 +101,8 @@ export class EmpresasController {
         @Req() req: any,
         @Res() res: Response,
     ) {
-        const userRol = req.user?.idRol || req.user?.rol;
-        const isInvestigador = ROLES_INVESTIGADORES.includes(userRol);
+        const permisosUsuario = req.user?.permisos || [];
+        const isInvestigador = permisosUsuario.includes('empresas:leer_restringido');
         const idUsuario = isInvestigador ? (req.user?.sub as number) : undefined;
 
         const empresa = await this.empresasService.findOnePrivate(idEmpresa, idUsuario);
@@ -109,7 +114,8 @@ export class EmpresasController {
     // =========================================================
 
     @Put('private/:idEmpresa')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_EMPRESAS as unknown as number[]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.EMPRESAS_EDITAR)
     @ApiOperation({
         summary: 'Api para actualizar/editar los datos de una empresa',
     })
@@ -133,7 +139,8 @@ export class EmpresasController {
     }
 
     @Delete(':idEmpresa')
-    @UseGuards(AuthRolesGuard(ROLES_ADMIN_EMPRESAS as unknown as number[]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.EMPRESAS_ELIMINAR)
     @ApiOperation({
         summary: 'Api para eliminar o dar de baja una empresa',
     })

@@ -37,6 +37,7 @@ export enum Permiso {
 
     // Empresas
     EMPRESAS_LEER    = 'empresas:leer',
+    EMPRESAS_LEER_RESTRINGIDO = 'empresas:leer_restringido',
     EMPRESAS_CREAR   = 'empresas:crear',
     EMPRESAS_EDITAR  = 'empresas:editar',
     EMPRESAS_ELIMINAR= 'empresas:eliminar',
@@ -53,6 +54,9 @@ export enum Permiso {
 
     // Dashboard
     DASHBOARD_LEER   = 'dashboard:leer',
+
+    // Roles
+    ROLES_GESTIONAR  = 'roles:gestionar',
 }
 
 // ─────────────────────────────────────────────

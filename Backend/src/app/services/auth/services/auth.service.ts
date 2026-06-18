@@ -48,6 +48,7 @@ import { MyJwtConfig } from 'src/config/services/jwt.config';
 import { Rol, RolesEnum } from 'src/shared/constants/roles.const';
 import { EmailService } from 'src/shared/services/email/email.service';
 import { LogsService } from 'src/modules/logs/logs.service';
+import { RolesService } from 'src/modules/usuarios/modules/roles/services/roles.service';
 
 // ─── Interfaces de respuesta ──────────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ interface LoginResponse {
     access_token: string;
     idUsuario: number;
     idRol: number;
+    permisos: string[];
     must_change_password: boolean;
 }
 
@@ -76,6 +78,7 @@ interface JwtPayload {
     usuario: string;
     rol: number;
     idRol: number;
+    permisos: string[];
     must_change_password: boolean;
 }
 
@@ -117,6 +120,7 @@ export class AuthService {
         private readonly configService: ConfigService,
         private readonly emailService: EmailService,
         private readonly logsService: LogsService,
+        private readonly rolesService: RolesService,
     ) {}
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -425,12 +429,15 @@ export class AuthService {
             await this.usuariosService.marcarPasswordExpirado(usuario.id);
         }
 
+        const permisos = await this.rolesService.getPermissionsForRole(usuario.idRol);
+
         const payload: JwtPayload = {
             sub: usuario.id,
             id: usuario.id,
             usuario: usuario.usuario,
             rol: usuario.idRol,
             idRol: usuario.idRol,
+            permisos,
             must_change_password: mustChangePassword,
         };
 
@@ -448,6 +455,7 @@ export class AuthService {
             access_token: token,
             idUsuario: usuario.id,
             idRol: usuario.idRol,
+            permisos,
             must_change_password: mustChangePassword,
         };
     }

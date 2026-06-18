@@ -48,7 +48,7 @@ function Header({ loggedInUser, onLogout, onLogin, toggleMobileMenu }) {
 
   const getRoleName = (idRol) => {
     switch (idRol) {
-      case 1: return "Superadmin";
+      case 1: return "Oficial de Seguridad de Información (OSI)";
       case 2: return "Admin RRHH";
       case 3: return "Admin Empresas";
       case 4: return "Inv. Senior";

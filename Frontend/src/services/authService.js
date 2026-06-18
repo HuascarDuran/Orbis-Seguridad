@@ -45,6 +45,7 @@ console.log('Enviando login con header:', config.headers);
     id:                   idUsuario,
     usuario:              decoded.usuario || usuario,
     idRol:                decoded.rol ?? decoded.role ?? null,
+    permisos:             data.permisos ?? decoded.permisos ?? [],
     exp:                  decoded.exp ?? null,
     must_change_password: data.must_change_password ?? decoded.must_change_password ?? false,
   };

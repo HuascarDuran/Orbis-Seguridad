@@ -38,6 +38,9 @@ import {
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { AuthRolesGuard as JwtGuard } from '../../app/services/auth/guards/auth-roles.guard';
+import { PermisosGuard } from '../../app/services/auth/permisos.guard';
+import { RequierePermisos } from '../../shared/decorators/requiere-permisos.decorator';
+import { Permiso } from '../../shared/constants/roles.const';
 import { FiltrosLogDto, LogsService, PaginatedLogsResult } from './logs.service';
 import { Log, TipoLog } from './log.entity';
 
@@ -93,7 +96,8 @@ export class LogsController {
     @ApiQuery({ name: 'severidad',  required: false, enum: ['ALTO', 'MEDIO', 'BAJO'] })
     @ApiQuery({ name: 'fechaDesde', required: false, type: String })
     @ApiQuery({ name: 'fechaHasta', required: false, type: String })
-    @UseGuards(JwtGuard([1, 2]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.LOGS_LEER)
     @Get('seguridad')
     async getLogsSeguridad(
         @Query() query: RawQueryParams,
@@ -113,7 +117,8 @@ export class LogsController {
     @ApiQuery({ name: 'entidad',    required: false, type: String })
     @ApiQuery({ name: 'fechaDesde', required: false, type: String })
     @ApiQuery({ name: 'fechaHasta', required: false, type: String })
-    @UseGuards(JwtGuard([1, 2, 3]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.LOGS_LEER)
     @Get('aplicacion')
     async getLogsAplicacion(
         @Query() query: RawQueryParams,
@@ -129,7 +134,8 @@ export class LogsController {
 
     @ApiOperation({ summary: 'Historial de auditoría de un usuario específico' })
     @ApiQuery({ name: 'limit', required: false, type: Number })
-    @UseGuards(JwtGuard([1, 2]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.LOGS_LEER)
     @Get('usuario/:id')
     async getHistorialUsuario(
         @Param('id', ParseIntPipe) idUsuario: number,
@@ -144,7 +150,8 @@ export class LogsController {
     // Genera y descarga un CSV con los logs filtrados.
 
     @ApiOperation({ summary: 'Exportar logs a CSV (solo SUPERADMIN)' })
-    @UseGuards(JwtGuard([1]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.LOGS_LEER)
     @Get('export/:tipo')
     async exportarLogs(
         @Param('tipo') tipo: string,
@@ -178,7 +185,8 @@ export class LogsController {
     // IMPORTANTE: debe declararse AL FINAL para que no capture rutas nombradas.
 
     @ApiOperation({ summary: 'Detalle completo de un registro de log' })
-    @UseGuards(JwtGuard([1, 2, 3]))
+    @UseGuards(JwtGuard([]), PermisosGuard)
+    @RequierePermisos(Permiso.LOGS_LEER)
     @Get(':id')
     async getLogById(
         @Param('id', ParseIntPipe) id: number,

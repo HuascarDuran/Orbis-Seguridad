@@ -83,6 +83,20 @@ export class RiesgosController {
         return this.riesgosService.resumenPorNivel();
     }
 
+    @ApiOperation({ summary: 'Obtener todos los activos de información' })
+    @RequierePermisos(Permiso.RIESGOS_LEER)
+    @Get('activos')
+    findAllActivos() {
+        return this.riesgosService.findAllActivos();
+    }
+
+    @ApiOperation({ summary: 'Obtener todas las amenazas/vulnerabilidades' })
+    @RequierePermisos(Permiso.RIESGOS_LEER)
+    @Get('amenazas')
+    findAllAmenazas() {
+        return this.riesgosService.findAllAmenazas();
+    }
+
     @ApiOperation({ summary: 'Obtener detalle de un riesgo' })
     @RequierePermisos(Permiso.RIESGOS_LEER)
     @Get(':id')

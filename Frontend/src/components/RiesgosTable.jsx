@@ -278,12 +278,12 @@ export default function RiesgosTable() {
               <th colSpan={1} style={groupHeaderStyle}>Medición</th>
               <th colSpan={1} style={groupHeaderStyle}>Mitigación</th>
               <th colSpan={3} style={groupHeaderStyle}>Eficiencia del Control</th>
-              <th colSpan={4} style={groupHeaderStyle}>Riesgo Residual</th>
+              <th colSpan={2} style={groupHeaderStyle}>Riesgo Residual</th>
               <th rowSpan={2} style={groupHeaderStyle}>Acciones</th>
             </tr>
             <tr>
               <th style={headerStyle}>Activo Información</th>
-              <th style={headerStyle}>Aplicativos / Sistemas</th>
+              <th style={headerStyle}>Tipo de Activo</th>
               <th style={headerStyle}>Amenaza / Vulnerabilidad</th>
               <th style={headerStyle}>Riesgo / Consecuencia</th>
               <th style={headerStyle}>Prob. Inh.</th>
@@ -293,10 +293,8 @@ export default function RiesgosTable() {
               <th style={headerStyle}>Tratamiento</th>
               <th style={headerStyle}>Controles a Implementar</th>
               <th style={headerStyle}>Tipo</th>
-              <th style={headerStyle}>Nivel</th>
+              <th style={headerStyle}>Nivel Impl.</th>
               <th style={headerStyle}>Frecuencia</th>
-              <th style={headerStyle}>Prob. Res.</th>
-              <th style={headerStyle}>Imp. Res.</th>
               <th style={headerStyle}>Riesgo Res.</th>
               <th style={headerStyle}>Nivel Res.</th>
             </tr>
@@ -304,28 +302,26 @@ export default function RiesgosTable() {
           <tbody>
             {riesgos.length === 0 && (
               <tr>
-                <td colSpan={18} style={{ ...celdaBase, textAlign: 'center', padding: 20 }}>
+                <td colSpan={16} style={{ ...celdaBase, textAlign: 'center', padding: 20 }}>
                   No hay riesgos registrados. Crea el primero con el botón "Nuevo Riesgo".
                 </td>
               </tr>
             )}
             {riesgos.map((r) => (
               <tr key={r.id}>
-                <td style={celdaBase}>{r.activo_informacion}</td>
-                <td style={celdaBase}>{r.aplicativos_sistemas}</td>
-                <td style={celdaBase}>{r.amenaza_vulnerabilidad}</td>
+                <td style={celdaBase}>{r.activo?.nombre || '—'}</td>
+                <td style={celdaBase}>{r.activo?.tipo || '—'}</td>
+                <td style={celdaBase}>{r.amenaza?.nombre || '—'}</td>
                 <td style={celdaBase}>{r.riesgo_consecuencia}</td>
                 <td style={{ ...celdaBase, textAlign: 'center' }}>{r.probabilidad_inherente}</td>
                 <td style={{ ...celdaBase, textAlign: 'center' }}>{r.impacto_inherente}</td>
                 <td style={{ ...celdaBase, textAlign: 'center', fontWeight: 600 }}>{r.riesgo_inherente}</td>
                 <td style={celdaNivel(r.nivel_riesgo_inherente)}>{r.nivel_riesgo_inherente}</td>
                 <td style={celdaBase}>{r.tratamiento_riesgo}</td>
-                <td style={celdaBase}>{r.controles_implementar}</td>
-                <td style={{ ...celdaBase, textAlign: 'center' }}>{r.tipo_control}</td>
-                <td style={{ ...celdaBase, textAlign: 'center' }}>{r.nivel_control}</td>
-                <td style={{ ...celdaBase, textAlign: 'center' }}>{r.frecuencia_control}</td>
-                <td style={{ ...celdaBase, textAlign: 'center' }}>{r.probabilidad_residual}</td>
-                <td style={{ ...celdaBase, textAlign: 'center' }}>{r.impacto_residual}</td>
+                <td style={celdaBase}>{r.controles_implementar || '—'}</td>
+                <td style={{ ...celdaBase, textAlign: 'center' }}>{r.tipo_control || '—'}</td>
+                <td style={{ ...celdaBase, textAlign: 'center' }}>{r.nivel_implementacion || '—'}</td>
+                <td style={{ ...celdaBase, textAlign: 'center' }}>{r.frecuencia_control || '—'}</td>
                 <td style={{ ...celdaBase, textAlign: 'center', fontWeight: 600 }}>{r.riesgo_residual}</td>
                 <td style={celdaNivel(r.nivel_riesgo_residual)}>{r.nivel_riesgo_residual}</td>
 
