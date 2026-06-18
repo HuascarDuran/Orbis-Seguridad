@@ -45,13 +45,8 @@ const FORM_INICIAL = {
   apellidoPaterno: '',
   apellidoMaterno: '',
   correoReal: '',
-  tipoRol: '',
+  idRol: '',
   confirmoDatos: false,
-  permisos: {
-    panelUsuarios: false,
-    editarEmpresas: false,
-    formularioExterno: false,
-  },
   rubrosAsignados: [],
 };
 
@@ -293,16 +288,11 @@ const AdministrarUsuarioPanel = () => {
     if (!form.nombre.trim())          errs.push('El nombre es obligatorio');
     if (!form.apellidoPaterno.trim()) errs.push('El apellido paterno es obligatorio');
     if (!form.correoReal.trim())      errs.push('El correo personal es obligatorio');
-    if (!form.tipoRol)                errs.push('Debes seleccionar un tipo de usuario');
+    if (!form.idRol)                  errs.push('Debes seleccionar un tipo de usuario');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.correoReal))
       errs.push('El correo personal no tiene un formato válido');
     if (!form.confirmoDatos)
       errs.push('Debes confirmar que ingresaste correctamente tus datos');
-    if (form.tipoRol === 'admin' &&
-        !form.permisos.panelUsuarios &&
-        !form.permisos.editarEmpresas &&
-        !form.permisos.formularioExterno)
-      errs.push('El administrador debe tener al menos un acceso asignado');
     return errs;
   };
 
@@ -318,9 +308,8 @@ const AdministrarUsuarioPanel = () => {
         apellidoPaterno: form.apellidoPaterno,
         apellidoMaterno: form.apellidoMaterno || undefined,
         correoReal:      form.correoReal,
-        tipoRol:         form.tipoRol,
-        permisos:        form.tipoRol === 'admin' ? form.permisos : undefined,
-        rubrosAsignados: form.tipoRol === 'investigador' ? form.rubrosAsignados : undefined,
+        idRol:           Number(form.idRol),
+        rubrosAsignados: tieneRestriccionRubro ? form.rubrosAsignados : undefined,
       });
       addToast('Usuario creado. Credenciales enviadas a su correo.', 'success');
       setMostrarModalCrear(false);
@@ -746,9 +735,11 @@ const AdministrarUsuarioPanel = () => {
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 font-miles bg-white"
                 >
                   <option value="">-- Seleccionar Rol --</option>
-                  {roles.map((r) => (
-                    <option key={r.id} value={r.id}>{r.nombre}</option>
-                  ))}
+                  {roles
+                    .filter((r) => r.id !== 1 && !r.nombre.toLowerCase().includes('osi') && !r.nombre.toLowerCase().includes('superadmin'))
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>{r.nombre}</option>
+                    ))}
                 </select>
               </div>
 
@@ -931,9 +922,11 @@ const AdministrarUsuarioPanel = () => {
                   onChange={(e) => setEditRol(Number(e.target.value))}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-300 font-miles bg-white"
                 >
-                  {roles.map((r) => (
-                    <option key={r.id} value={r.id}>{r.nombre}</option>
-                  ))}
+                  {roles
+                    .filter((r) => r.id !== 1 && !r.nombre.toLowerCase().includes('osi') && !r.nombre.toLowerCase().includes('superadmin'))
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>{r.nombre}</option>
+                    ))}
                 </select>
 
                 <div className="mt-3 bg-gray-50 border border-gray-200 rounded-xl p-3">

@@ -1,17 +1,17 @@
 {
   "files": {
     "main.css": "/static/css/main.8ce6f45e.css",
-    "main.js": "/static/js/main.c28ad18a.js",
+    "main.js": "/static/js/main.1fb36466.js",
     "static/media/RNSMiles-Light.otf": "/static/media/RNSMiles-Light.2a8678823157d87f1f8d.otf",
     "static/media/logo.png": "/static/media/logo.bed809af0eb16f9dff5e.png",
     "static/media/bolivia.svg": "/static/media/bolivia.f53de75632d0f568d3b29adf39a0b1a2.svg",
     "static/media/BodoniStd.otf": "/static/media/BodoniStd.50932b090dac5bf48789.otf",
     "index.html": "/index.html",
     "main.8ce6f45e.css.map": "/static/css/main.8ce6f45e.css.map",
-    "main.c28ad18a.js.map": "/static/js/main.c28ad18a.js.map"
+    "main.1fb36466.js.map": "/static/js/main.1fb36466.js.map"
   },
   "entrypoints": [
     "static/css/main.8ce6f45e.css",
-    "static/js/main.c28ad18a.js"
+    "static/js/main.1fb36466.js"
   ]
 }
