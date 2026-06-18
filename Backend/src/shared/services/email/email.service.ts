@@ -16,6 +16,7 @@
 
 import { Injectable } from '@nestjs/common';
 import { MailerService } from '@nestjs-modules/mailer';
+import axios from 'axios';
 
 interface EmailAttachment {
     filename:     string;
@@ -39,6 +40,69 @@ export class EmailService {
 
     private async sendEmailAsync(options: EmailOptions): Promise<void> {
         try {
+            const brevoApiKey = process.env.BREVO_API_KEY;
+            const resendApiKey = process.env.RESEND_API_KEY;
+            const sendgridApiKey = process.env.SENDGRID_API_KEY;
+
+            if (brevoApiKey) {
+                const senderEmail = process.env.USER_EMAIL || 'noreply@orbis.com';
+                const recipients = Array.isArray(options.to) ? options.to : [options.to];
+                await axios.post('https://api.brevo.com/v3/smtp/email', {
+                    sender: { name: 'Orbis', email: senderEmail },
+                    to: recipients.map(email => ({ email })),
+                    subject: options.subject,
+                    htmlContent: options.html,
+                    textContent: options.text,
+                }, {
+                    headers: {
+                        'accept': 'application/json',
+                        'api-key': brevoApiKey,
+                        'content-type': 'application/json',
+                    }
+                });
+                return;
+            }
+
+            if (resendApiKey) {
+                const senderEmail = process.env.USER_EMAIL || 'onboarding@resend.dev';
+                const recipients = Array.isArray(options.to) ? options.to : [options.to];
+                await axios.post('https://api.resend.com/emails', {
+                    from: `Orbis <${senderEmail}>`,
+                    to: recipients,
+                    subject: options.subject,
+                    html: options.html,
+                    text: options.text,
+                }, {
+                    headers: {
+                        'Authorization': `Bearer ${resendApiKey}`,
+                        'Content-Type': 'application/json',
+                    }
+                });
+                return;
+            }
+
+            if (sendgridApiKey) {
+                const senderEmail = process.env.USER_EMAIL || 'noreply@orbis.com';
+                const recipients = Array.isArray(options.to) ? options.to : [options.to];
+                await axios.post('https://api.sendgrid.com/v3/mail/send', {
+                    personalizations: [{
+                        to: recipients.map(email => ({ email })),
+                    }],
+                    from: { email: senderEmail, name: 'Orbis' },
+                    subject: options.subject,
+                    content: [
+                        { type: 'text/html', value: options.html },
+                    ],
+                }, {
+                    headers: {
+                        'Authorization': `Bearer ${sendgridApiKey}`,
+                        'Content-Type': 'application/json',
+                    }
+                });
+                return;
+            }
+
+            // Fallback to Gmail SMTP
             await this.mailerService.sendMail({
                 to:          options.to,
                 subject:     options.subject,
